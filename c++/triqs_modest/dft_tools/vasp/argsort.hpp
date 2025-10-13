@@ -18,10 +18,11 @@
 * TRIQS. If not, see <http://www.gnu.org/licenses/>.
 *
 *******************************************************************************/
-#ifndef __ARGSORT_H__
-#define __ARGSORT_H__
 
-void argsort(double *arr, int *inds, double **ptrs, const int n);
-void iargsort(int *iarr, int *inds, int **ptrs, const int n);
+#pragma once
+#include <algorithm>
 
-#endif
+template <typename T> void argsort(const T &array, int *indices, int n) {
+  for (int i = 0; i < n; ++i) indices[i] = i;
+  std::sort(indices, indices + n, [&](int a, int b) { return array[a] < array[b]; });
+}

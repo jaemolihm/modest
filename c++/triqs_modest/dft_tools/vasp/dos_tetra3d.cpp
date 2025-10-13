@@ -295,14 +295,15 @@ int dos_tet_weights(double en, double *eigs, int *inds, double *ct) {
 /// Sorts eigenvalues and also determines eigenvalue degeneracies.
 /// Returns a case number corresponding to a combination of degeneracies.
 int dos_reorder(double en, double *e, int *inds) {
-  double *ptrs[4], e_tmp[4];
-  int i;
+  std::array<double, 4> e_tmp;
 
-  for (i = 0; i < 4; i++) e_tmp[i] = e[i];
+  const int n = 4;
 
-  argsort(e_tmp, inds, ptrs, 4);
+  for (int i = 0; i < n; i++) e_tmp[i] = e[i];
 
-  for (i = 0; i < 4; i++) e[i] = e_tmp[inds[i]];
+  argsort(e_tmp.data(), inds, n);
+
+  for (int i = 0; i < n; i++) e[i] = e_tmp[inds[i]];
 
   if ((e[0] <= en && en <= e[3]) && std::abs(e[3] - e[0]) < tol) return 6;
   if (e[0] <= en && en <= e[1]) return 1;
