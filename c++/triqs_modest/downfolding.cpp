@@ -34,6 +34,24 @@ namespace triqs::modest {
         }
       }
     }
+
+    // Rotate delta_P_k if present
+    if (res.delta_P_k.has_value()) {
+      auto n_delta = res.delta_P_k->extent(2);
+      for (auto isig : range(n_sigma)) {
+        auto decomp = range(U.extent(0)) | stdv::transform([&](auto &&m) { return U(m, isig).extent(0); }) | tl::to<std::vector>();
+        for (auto ik : range(n_k)) {
+          for (auto idelta : range(n_delta)) {
+            for (auto const &[a, sli] : enumerated_sub_slices(decomp)) {
+              // delta_P <- dagger(U) * delta_P
+              res.delta_P_k.value()(ik, isig, idelta, sli, r_all) =
+                  dagger(U(a, isig)) * matrix_const_view<dcomplex>{this->delta_P_k.value()(ik, isig, idelta, sli, r_all)};
+            }
+          }
+        }
+      }
+    }
+
     return res;
   }
 
@@ -93,7 +111,35 @@ namespace triqs::modest {
       P_k(r_all, r_all, sli, r_all) = new_P_k_list[atom](r_all, r_all, nda::range(0, new_atom_decomp[atom]), r_all);
     }
 
-    downfolding_projector new_P{.spin_kind = spin_kind, .P_k = P_k, .n_bands_per_k = obe.P.n_bands_per_k};
+    // Handle delta_P_k if present
+    std::optional<nda::array<dcomplex, 5>> delta_P_k = std::nullopt;
+    if (obe.P.delta_P_k.has_value()) {
+      auto n_delta = obe.P.delta_P_k->extent(2);
+
+      // Split delta_P_k by atoms
+      auto delta_P_k_list = atom_decomp | stdv::transform([&](auto dim) {
+        return nda::zeros<dcomplex>(n_k, n_sig, n_delta, dim, n_nu);
+      }) | tl::to<std::vector>();
+
+      for (auto &&[atom, sli] : enumerated_sub_slices(atom_decomp)) {
+        delta_P_k_list[atom](r_all, r_all, r_all, r_all, r_all) =
+            obe.P.delta_P_k.value()(r_all, r_all, r_all, sli, r_all);
+      }
+
+      // Reorder according to atom_indices
+      auto new_delta_P_k_list = atom_indices | stdv::transform([&](auto i) { return delta_P_k_list[i]; }) | tl::to<std::vector>();
+
+      // Reassemble into new delta_P_k
+      auto new_delta_P_k = nda::zeros<dcomplex>(n_k, n_sig, n_delta, n_M, n_nu);
+      for (auto const &[atom, sli] : enumerated_sub_slices(new_atom_decomp)) {
+        new_delta_P_k(r_all, r_all, r_all, sli, r_all) =
+            new_delta_P_k_list[atom](r_all, r_all, r_all, nda::range(0, new_atom_decomp[atom]), r_all);
+      }
+
+      delta_P_k = new_delta_P_k;
+    }
+
+    downfolding_projector new_P{.spin_kind = spin_kind, .P_k = P_k, .delta_P_k = delta_P_k, .n_bands_per_k = obe.P.n_bands_per_k};
 
     if (!obe.ibz_symm_ops) return {.H = obe.H, .C_space = new_C_space, .P = new_P, .ibz_symm_ops = {}};
 

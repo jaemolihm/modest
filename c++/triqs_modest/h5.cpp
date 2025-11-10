@@ -36,6 +36,15 @@ namespace triqs::modest {
     h5_read(subgroup, "spin_kind", proj.spin_kind);
     h5_read(subgroup, "P_k", proj.P_k);
     h5_read(subgroup, "n_bands_per_k", proj.n_bands_per_k);
+
+    // Read optional delta_P_k if present
+    if (subgroup.has_key("delta_P_k")) {
+      nda::array<dcomplex, 5> delta;
+      h5_read(subgroup, "delta_P_k", delta);
+      proj.delta_P_k = delta;
+    } else {
+      proj.delta_P_k = std::nullopt;
+    }
   }
 
   void h5_write(h5::group g, std::string const &name, downfolding_projector const &proj) {
@@ -43,6 +52,9 @@ namespace triqs::modest {
     h5_write(subgroup, "spin_kind", proj.spin_kind);
     h5_write(subgroup, "P_k", proj.P_k);
     h5_write(subgroup, "n_bands_per_k", proj.n_bands_per_k);
+
+    // Write optional delta_P_k if present
+    if (proj.delta_P_k.has_value()) { h5_write(subgroup, "delta_P_k", proj.delta_P_k.value()); }
   }
 
   // band_dispersion

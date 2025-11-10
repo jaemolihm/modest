@@ -152,6 +152,56 @@ namespace triqs::modest {
   }
 
   //-------------------------------------------------------
+  // Load and process optional delta projectors from HDF5. (internal)
+  std::optional<nda::array<dcomplex, 5>> load_rotate_and_format_delta_projectors(std::string const &filename, ReadMode mode,
+                                                                                  std::vector<cmat_t> const &rot_mats,
+                                                                                  std::vector<long> const &atom_decomp) {
+    // Only works for Correlated mode
+    if (mode != ReadMode::Correlated) return std::nullopt;
+
+    // Check if delta_proj_mat exists
+    auto root = h5::proxy{filename, 'r'};
+    auto g_dft = root["dft_input"];
+    auto g_dft_group = h5::group(g_dft);
+    if (!g_dft_group.has_key("delta_proj_mat")) return std::nullopt;
+
+    // Load delta_proj_mat: expected shape [n_k, n_sigma, n_delta, n_atoms, n_m, n_nu]
+    auto delta_P_k_tmp = as<nda::array<dcomplex, 6>>(g_dft["delta_proj_mat"]);
+    auto n_atoms = delta_P_k_tmp.extent(3);
+
+    // Split by atoms: delta_P_k_list[atom] has shape [n_k, n_sigma, n_delta, n_m, n_nu]
+    auto delta_P_k_list = range(n_atoms)
+        | stdv::transform([&](auto atom) {
+            return delta_P_k_tmp(r_all, r_all, r_all, atom, r_all, r_all);
+          })
+        | tl::to<std::vector>();
+
+    // Apply rotation matrices: delta_P <- R† * delta_P for each (k, sigma, delta, atom)
+    auto [n_k, n_sigma, n_delta, n_m, n_nu] = delta_P_k_list[0].shape();
+    for (auto isig : range(n_sigma)) {
+      for (auto ik : range(n_k)) {
+        for (auto idelta : range(n_delta)) {
+          for (auto const &[R, delta_P] : zip(rot_mats, delta_P_k_list)) {
+            // delta_P(ik, isig, idelta, 0:dim, :) = R† * delta_P(ik, isig, idelta, 0:dim, :)
+            delta_P(ik, isig, idelta, nda::range(0, R.extent(0)), r_all) =
+                dagger(R) * nda::matrix<dcomplex>{delta_P(ik, isig, idelta, nda::range(0, R.extent(0)), r_all)};
+          }
+        }
+      }
+    }
+
+    // Embed into M-dimensional space
+    long M = stdr::fold_left(atom_decomp, 0, std::plus<>());
+    auto delta_P_k = nda::zeros<dcomplex>(n_k, n_sigma, n_delta, M, n_nu);
+    for (auto const &[atom, sli] : enumerated_sub_slices(atom_decomp)) {
+      delta_P_k(r_all, r_all, r_all, sli, r_all) =
+          delta_P_k_list[atom](r_all, r_all, r_all, nda::range(0, atom_decomp[atom]), r_all);
+    }
+
+    return delta_P_k;
+  }
+
+  //-------------------------------------------------------
   // Read band dispersion and k-weights according to ReadMode. (internal)
   std::tuple<nda::array<dcomplex, 4>, nda::matrix<long>, nda::array<double, 1>> read_bands_and_weights(std::string filename, ReadMode mode) {
     auto root = h5::proxy{filename, 'r'};
@@ -280,6 +330,9 @@ namespace triqs::modest {
     auto atom_decomp = atomic_shells | stdv::transform([](auto &x) { return x.dim; }) | tl::to<std::vector<long>>();
     auto P_k         = load_rotate_and_format_projectors(filename, ReadMode::Correlated, rot_mats, atom_decomp);
 
+    // read and rotate optional delta projectors
+    auto delta_P_k = load_rotate_and_format_delta_projectors(filename, ReadMode::Correlated, rot_mats, atom_decomp);
+
     // read symmetry ops
     //FIXME: auto symm_ops = (long(g_dft["symm_op"]) == 0) ? ibz_symmetry_ops{} : read_ibz(root, atomic_shells, Rmats);
     auto symm_ops = (long(g_dft["symm_op"]) == 0) ? std::optional<ibz_symmetry_ops>{} :
@@ -297,7 +350,7 @@ namespace triqs::modest {
     // auto H_k_is_diagonal = nda::is_diagonal(nda::matrix<dcomplex>{H_k(1, 0, r_all, r_all)});
     auto eps_k = band_dispersion{
        .spin_kind = spin_kind, .H_k = std::move(H_k), .n_bands_per_k = n_bands_per_k, .k_weights = k_weights, .matrix_valued = !H_k_is_diagonal};
-    auto proj = downfolding_projector{.spin_kind = spin_kind, .P_k = std::move(P_k), .n_bands_per_k = n_bands_per_k};
+    auto proj = downfolding_projector{.spin_kind = spin_kind, .P_k = std::move(P_k), .delta_P_k = std::move(delta_P_k), .n_bands_per_k = n_bands_per_k};
 
     // build a first version without symmetries
     auto C_space_no_symm = local_space{spin_kind, atomic_shells, {}, {}, {}};
@@ -358,7 +411,7 @@ namespace triqs::modest {
     // read and rotate projectors
     auto atom_decomp = W_space.atomic_decomposition() | tl::to<std::vector<long>>();
     auto P_k         = load_rotate_and_format_projectors(filename, ReadMode::ThetaProjectors, rot_mats, atom_decomp);
-    auto theta_proj  = downfolding_projector{.spin_kind = obe.C_space.spin_kind(), .P_k = std::move(P_k), .n_bands_per_k = obe.H.n_bands_per_k};
+    auto theta_proj  = downfolding_projector{.spin_kind = obe.C_space.spin_kind(), .P_k = std::move(P_k), .delta_P_k = std::nullopt, .n_bands_per_k = obe.H.n_bands_per_k};
 
     // create a new IBZ symmetrizer that spans all atoms instead of just the correlated atoms
     auto symm_ops = (obe.ibz_symm_ops) ? std::optional<ibz_symmetry_ops>(read_ibz_symmetry_ops(filename, ReadMode::ThetaProjectors)) :
@@ -389,7 +442,7 @@ namespace triqs::modest {
     // construct one-body elements (ibz_symm_ops are needed so we drop)
     auto eps_k = band_dispersion{
        .spin_kind = obe.C_space.spin_kind(), .H_k = std::move(H_k), .n_bands_per_k = n_bands_per_k, .k_weights = {}, .matrix_valued = false};
-    auto proj = downfolding_projector{.spin_kind = obe.C_space.spin_kind(), .P_k = std::move(P_k), .n_bands_per_k = n_bands_per_k};
+    auto proj = downfolding_projector{.spin_kind = obe.C_space.spin_kind(), .P_k = std::move(P_k), .delta_P_k = std::nullopt, .n_bands_per_k = n_bands_per_k};
     auto obe1 = one_body_elements_on_grid{.H = eps_k, .C_space = obe.C_space, .P = proj, .ibz_symm_ops = {}};
 
     // rotate to the local basis that the self-energies will be defined in.

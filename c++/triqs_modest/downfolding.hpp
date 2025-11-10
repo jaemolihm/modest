@@ -6,6 +6,7 @@
 #pragma once
 #include <triqs/gfs.hpp>
 #include <type_traits>
+#include <optional>
 #include "./local_space.hpp"
 #include "./ibz_symmetry_ops.hpp"
 #include "utils/nda_supp.hpp"
@@ -109,9 +110,10 @@ namespace triqs::modest {
    *   \f$ \sum_{ \nu} P^{\sigma}_{m\nu}(\mathbf{k}) P^{\dagger\sigma}_{\nu m'}(\mathbf{k}) = \delta_{mm'} \f$.
    */
   struct downfolding_projector {
-    spin_kind_e spin_kind;             ///< Spin kind of the one-body data.
-    nda::array<dcomplex, 4> P_k;       ///< Projector \f$ P_{m\nu}^{\sigma}(\mathbf{k}) \f$.
-    nda::array<long, 2> n_bands_per_k; ///< Number of bands for each k-point and \f$ \sigma \f$.
+    spin_kind_e spin_kind;                             ///< Spin kind of the one-body data.
+    nda::array<dcomplex, 4> P_k;                       ///< Projector \f$ P_{m\nu}^{\sigma}(\mathbf{k}) \f$.
+    std::optional<nda::array<dcomplex, 5>> delta_P_k;  ///< Projector derivative \f$ \delta P_{m\nu}^{\sigma}(\mathbf{k}) \f$.
+    nda::array<long, 2> n_bands_per_k;                 ///< Number of bands for each k-point and \f$ \sigma \f$.
 
     // public:
     // /// Constructor

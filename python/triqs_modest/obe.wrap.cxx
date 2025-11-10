@@ -328,6 +328,7 @@ static int synth_constructor_1(PyObject *self, PyObject *args, PyObject *kwargs)
   auto &self_c = *(((c2py::wrap<triqs::modest::downfolding_projector> *)self)->_c);
   de("spin_kind", self_c.spin_kind, false);
   de("P_k", self_c.P_k, false);
+  de("delta_P_k", self_c.delta_P_k, false);
   de("n_bands_per_k", self_c.n_bands_per_k, false);
   return de.check();
 }
@@ -344,13 +345,15 @@ spin_kind : {par_0}
 
 P_k : {par_1}
 
-n_bands_per_k : {par_2}
+delta_P_k : {par_2}
+
+n_bands_per_k : {par_3}
 
 )DOC",
                       "par",
-                      std::vector<std::string>{std::vector<std::string>{c2py::python_typename<triqs::modest::spin_kind_e>(),
-                                                                        c2py::python_typename<nda::array<triqs::dcomplex, 4>>(),
-                                                                        c2py::python_typename<nda::array<long, 2>>()}});
+                      std::vector<std::string>{std::vector<std::string>{
+                         c2py::python_typename<triqs::modest::spin_kind_e>(), c2py::python_typename<nda::array<triqs::dcomplex, 4>>(),
+                         c2py::python_typename<std::optional<nda::array<triqs::dcomplex, 5>>>(), c2py::python_typename<nda::array<long, 2>>()}});
 // P
 static auto const fun_4 = c2py::dispatcher_f_kw_t{c2py::cmethod(
    [](triqs::modest::downfolding_projector const &self, long sigma, long k_idx) { return self.P(sigma, k_idx); }, "self", "sigma", "k_idx")};
@@ -395,12 +398,14 @@ PyMethodDef c2py::tp_methods<triqs::modest::downfolding_projector>[] = {
 
 constexpr auto doc_member_5 = R"DOC(Spin kind of the one-body data.)DOC";
 constexpr auto doc_member_6 = R"DOC(Projector :math:`P_{m\nu}^{\sigma}(\mathbf{k})`.)DOC";
-constexpr auto doc_member_7 = R"DOC(Number of bands for each k-point and :math:`\sigma`.)DOC";
+constexpr auto doc_member_7 = R"DOC(Projector derivative :math:`\delta P_{m\nu}^{\sigma}(\mathbf{k})`.)DOC";
+constexpr auto doc_member_8 = R"DOC(Number of bands for each k-point and :math:`\sigma`.)DOC";
 static PyObject *prop_get_dict_1(PyObject *self, void *) {
   auto &self_c = *(((c2py::wrap<triqs::modest::downfolding_projector> *)self)->_c);
   c2py::pydict dic;
   dic["spin_kind"]     = self_c.spin_kind;
   dic["P_k"]           = self_c.P_k;
+  dic["delta_P_k"]     = self_c.delta_P_k;
   dic["n_bands_per_k"] = self_c.n_bands_per_k;
   return dic.new_ref();
 }
@@ -411,8 +416,9 @@ template <>
 constinit PyGetSetDef c2py::tp_getset<triqs::modest::downfolding_projector>[] = {
    c2py::getsetdef_from_member<&triqs::modest::downfolding_projector::spin_kind, triqs::modest::downfolding_projector>("spin_kind", doc_member_5),
    c2py::getsetdef_from_member<&triqs::modest::downfolding_projector::P_k, triqs::modest::downfolding_projector>("P_k", doc_member_6),
+   c2py::getsetdef_from_member<&triqs::modest::downfolding_projector::delta_P_k, triqs::modest::downfolding_projector>("delta_P_k", doc_member_7),
    c2py::getsetdef_from_member<&triqs::modest::downfolding_projector::n_bands_per_k, triqs::modest::downfolding_projector>("n_bands_per_k",
-                                                                                                                           doc_member_7),
+                                                                                                                           doc_member_8),
    {"__dict__", (getter)prop_get_dict_1, nullptr, "", nullptr},
    {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
@@ -498,9 +504,9 @@ PyMethodDef c2py::tp_methods<triqs::modest::one_body_elements_on_grid>[] = {
    {nullptr, nullptr, 0, nullptr} // Sentinel
 };
 
-constexpr auto doc_member_8  = R"DOC(Band dispersion.)DOC";
-constexpr auto doc_member_9  = R"DOC(Local :math:`\mathcal{C}` space.)DOC";
-constexpr auto doc_member_10 = R"DOC(Downfolding projector :math:`P`.)DOC";
+constexpr auto doc_member_9  = R"DOC(Band dispersion.)DOC";
+constexpr auto doc_member_10 = R"DOC(Local :math:`\mathcal{C}` space.)DOC";
+constexpr auto doc_member_11 = R"DOC(Downfolding projector :math:`P`.)DOC";
 static PyObject *prop_get_dict_2(PyObject *self, void *) {
   auto &self_c = *(((c2py::wrap<triqs::modest::one_body_elements_on_grid> *)self)->_c);
   c2py::pydict dic;
@@ -514,9 +520,10 @@ static PyObject *prop_get_dict_2(PyObject *self, void *) {
 
 template <>
 constinit PyGetSetDef c2py::tp_getset<triqs::modest::one_body_elements_on_grid>[] = {
-   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_on_grid::H, triqs::modest::one_body_elements_on_grid>("H", doc_member_8),
-   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_on_grid::C_space, triqs::modest::one_body_elements_on_grid>("C_space", doc_member_9),
-   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_on_grid::P, triqs::modest::one_body_elements_on_grid>("P", doc_member_10),
+   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_on_grid::H, triqs::modest::one_body_elements_on_grid>("H", doc_member_9),
+   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_on_grid::C_space, triqs::modest::one_body_elements_on_grid>("C_space",
+                                                                                                                             doc_member_10),
+   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_on_grid::P, triqs::modest::one_body_elements_on_grid>("P", doc_member_11),
    {"__dict__", (getter)prop_get_dict_2, nullptr, "", nullptr},
    {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
@@ -569,8 +576,8 @@ PyMethodDef c2py::tp_methods<triqs::modest::one_body_elements_tb>[] = {
    {nullptr, nullptr, 0, nullptr} // Sentinel
 };
 
-constexpr auto doc_member_11 = R"DOC(Local :math:`\mathcal{C}` space.)DOC";
-constexpr auto doc_member_12 = R"DOC(List of TB Hamiltonians.)DOC";
+constexpr auto doc_member_12 = R"DOC(Local :math:`\mathcal{C}` space.)DOC";
+constexpr auto doc_member_13 = R"DOC(List of TB Hamiltonians.)DOC";
 static PyObject *prop_get_dict_3(PyObject *self, void *) {
   auto &self_c = *(((c2py::wrap<triqs::modest::one_body_elements_tb> *)self)->_c);
   c2py::pydict dic;
@@ -583,8 +590,8 @@ static PyObject *prop_get_dict_3(PyObject *self, void *) {
 
 template <>
 constinit PyGetSetDef c2py::tp_getset<triqs::modest::one_body_elements_tb>[] = {
-   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_tb::C_space, triqs::modest::one_body_elements_tb>("C_space", doc_member_11),
-   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_tb::H, triqs::modest::one_body_elements_tb>("H", doc_member_12),
+   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_tb::C_space, triqs::modest::one_body_elements_tb>("C_space", doc_member_12),
+   c2py::getsetdef_from_member<&triqs::modest::one_body_elements_tb::H, triqs::modest::one_body_elements_tb>("H", doc_member_13),
    {"__dict__", (getter)prop_get_dict_3, nullptr, "", nullptr},
    {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
