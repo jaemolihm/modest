@@ -358,8 +358,12 @@ n_bands_per_k : {par_3}
 static auto const fun_4 = c2py::dispatcher_f_kw_t{c2py::cmethod(
    [](triqs::modest::downfolding_projector const &self, long sigma, long k_idx) { return self.P(sigma, k_idx); }, "self", "sigma", "k_idx")};
 
-// rotate_local_basis
+// delta_P
 static auto const fun_5 = c2py::dispatcher_f_kw_t{c2py::cmethod(
+   [](triqs::modest::downfolding_projector const &self, long sigma, long k_idx) { return self.delta_P(sigma, k_idx); }, "self", "sigma", "k_idx")};
+
+// rotate_local_basis
+static auto const fun_6 = c2py::dispatcher_f_kw_t{c2py::cmethod(
    [](triqs::modest::downfolding_projector const &self, const nda::array<nda::matrix<triqs::dcomplex>, 2> &U) { return self.rotate_local_basis(U); },
    "self", "U")};
 
@@ -383,7 +387,27 @@ Returns
              std::vector<std::string>{c2py::join(std::vector<std::string>{c2py::python_typename<long>()}, ", "),
                                       c2py::join(std::vector<std::string>{c2py::python_typename<long>()}, ", ")},
              std::vector<std::string>{std::vector<std::string>{c2py::python_typename<nda::matrix_const_view<triqs::dcomplex>>()}});
-static const auto doc_d_5 = fun_5.doc(R"DOC(
+static const auto doc_d_5 =
+   fun_5.doc(R"DOC(
+Get :math:`\delta P_{\delta m\nu}^{\sigma}(\mathbf{k})` for a given :math:`\mathbf{k}` and :math:`\sigma`.
+
+Parameters
+----------
+sigma : {par_0}
+   Spin index :math:`\sigma`.
+k_idx : {par_1}
+   Index of the k-point in the grid.
+
+Returns
+-------
+{ret_0}
+   3D array view of :math:`\delta P_{\delta m\nu}^{\sigma}(\mathbf{k})` in :math:`(\delta, m, \nu)` for the given :math:`\mathbf{k}`
+   and :math:`\sigma`. Returns empty optional if delta_P_k is not present.
+)DOC",
+             std::vector<std::string>{c2py::join(std::vector<std::string>{c2py::python_typename<long>()}, ", "),
+                                      c2py::join(std::vector<std::string>{c2py::python_typename<long>()}, ", ")},
+             std::vector<std::string>{std::vector<std::string>{c2py::python_typename<std::optional<nda::array_const_view<triqs::dcomplex, 3>>>()}});
+static const auto doc_d_6 = fun_6.doc(R"DOC(
 Rotates the local basis of the downfolding projector.
 )DOC",
                                       std::vector<std::string>{}, std::vector<std::string>{});
@@ -392,7 +416,8 @@ Rotates the local basis of the downfolding projector.
 template <>
 PyMethodDef c2py::tp_methods<triqs::modest::downfolding_projector>[] = {
    {"P", (PyCFunction)c2py::pyfkw<fun_4>, METH_VARARGS | METH_KEYWORDS, doc_d_4.c_str()},
-   {"rotate_local_basis", (PyCFunction)c2py::pyfkw<fun_5>, METH_VARARGS | METH_KEYWORDS, doc_d_5.c_str()},
+   {"delta_P", (PyCFunction)c2py::pyfkw<fun_5>, METH_VARARGS | METH_KEYWORDS, doc_d_5.c_str()},
+   {"rotate_local_basis", (PyCFunction)c2py::pyfkw<fun_6>, METH_VARARGS | METH_KEYWORDS, doc_d_6.c_str()},
    {nullptr, nullptr, 0, nullptr} // Sentinel
 };
 
@@ -602,13 +627,13 @@ const std::string c2py::tp_doc<triqs::modest::one_body_elements_tb> = R"DOC(A on
 // ==================== module functions ====================
 
 // one_body_elements_from_dft_converter
-static auto const fun_6 = c2py::dispatcher_f_kw_t{
+static auto const fun_7 = c2py::dispatcher_f_kw_t{
    c2py::cfun([](const std::string &filename, double threshold,
                  bool diagonalize_hloc) { return triqs::modest::one_body_elements_from_dft_converter(filename, threshold, diagonalize_hloc); },
               "filename", "threshold"_a = 1.e-5, "diagonalize_hloc"_a = false)};
 
 // one_body_elements_from_wannier90
-static auto const fun_7 = c2py::dispatcher_f_kw_t{
+static auto const fun_8 = c2py::dispatcher_f_kw_t{
    c2py::cfun(
       [](const std::string &wannier_file_path, triqs::modest::spin_kind_e spin_kind, std::vector<triqs::modest::atomic_orbs> atomic_shells) {
         return triqs::modest::one_body_elements_from_wannier90(wannier_file_path, spin_kind, atomic_shells);
@@ -622,20 +647,20 @@ static auto const fun_7 = c2py::dispatcher_f_kw_t{
       "wannier_file_path_up", "wannier_file_path_dn", "spin_kind", "atomic_shells")};
 
 // one_body_elements_on_high_symmetry_path
-static auto const fun_8 = c2py::dispatcher_f_kw_t{c2py::cfun(
+static auto const fun_9 = c2py::dispatcher_f_kw_t{c2py::cfun(
    [](const std::string &filename, const triqs::modest::one_body_elements_on_grid &obe) {
      return triqs::modest::one_body_elements_on_high_symmetry_path(filename, obe);
    },
    "filename", "obe")};
 
 // one_body_elements_with_theta_projectors
-static auto const fun_9 = c2py::dispatcher_f_kw_t{c2py::cfun(
+static auto const fun_10 = c2py::dispatcher_f_kw_t{c2py::cfun(
    [](const std::string &filename, const triqs::modest::one_body_elements_on_grid &obe) {
      return triqs::modest::one_body_elements_with_theta_projectors(filename, obe);
    },
    "filename", "obe")};
 
-static const auto doc_d_6 = fun_6.doc(
+static const auto doc_d_7 = fun_7.doc(
    R"DOC(
 Create a one-body elements with orthonormalized projectors.
 
@@ -693,8 +718,8 @@ Returns
                             c2py::join(std::vector<std::string>{c2py::python_typename<double>()}, ", "),
                             c2py::join(std::vector<std::string>{c2py::python_typename<bool>()}, ", ")},
    std::vector<std::string>{std::vector<std::string>{c2py::python_typename<std::pair<double, triqs::modest::one_body_elements_on_grid>>()}});
-static const auto doc_d_7 =
-   fun_7.doc(R"DOC(
+static const auto doc_d_8 =
+   fun_8.doc(R"DOC(
 [1] Construct a one-body elements TB object from Wannier90 in the case of a single spin index.
 
 ------
@@ -730,7 +755,7 @@ Returns
                                       c2py::join(std::vector<std::string>{c2py::python_typename<const std::string &>()}, ", "),
                                       c2py::join(std::vector<std::string>{c2py::python_typename<const std::string &>()}, ", ")},
              std::vector<std::string>{std::vector<std::string>{c2py::python_typename<triqs::modest::one_body_elements_tb>()}});
-static const auto doc_d_8 = fun_8.doc(
+static const auto doc_d_9 = fun_9.doc(
    R"DOC(
 Create a one-body elements along specific k-path.
 
@@ -753,7 +778,7 @@ Returns
    std::vector<std::string>{c2py::join(std::vector<std::string>{c2py::python_typename<const std::string &>()}, ", "),
                             c2py::join(std::vector<std::string>{c2py::python_typename<const triqs::modest::one_body_elements_on_grid &>()}, ", ")},
    std::vector<std::string>{std::vector<std::string>{c2py::python_typename<triqs::modest::one_body_elements_on_grid>()}});
-static const auto doc_d_9 = fun_9.doc(
+static const auto doc_d_10 = fun_10.doc(
    R"DOC(
 Create a one-body elements with the :math:`\Theta` projectors.
 
@@ -779,10 +804,10 @@ Returns
 //--------------------- module function table  -----------------------------
 
 static PyMethodDef module_methods[] = {
-   {"one_body_elements_from_dft_converter", (PyCFunction)c2py::pyfkw<fun_6>, METH_VARARGS | METH_KEYWORDS, doc_d_6.c_str()},
-   {"one_body_elements_from_wannier90", (PyCFunction)c2py::pyfkw<fun_7>, METH_VARARGS | METH_KEYWORDS, doc_d_7.c_str()},
-   {"one_body_elements_on_high_symmetry_path", (PyCFunction)c2py::pyfkw<fun_8>, METH_VARARGS | METH_KEYWORDS, doc_d_8.c_str()},
-   {"one_body_elements_with_theta_projectors", (PyCFunction)c2py::pyfkw<fun_9>, METH_VARARGS | METH_KEYWORDS, doc_d_9.c_str()},
+   {"one_body_elements_from_dft_converter", (PyCFunction)c2py::pyfkw<fun_7>, METH_VARARGS | METH_KEYWORDS, doc_d_7.c_str()},
+   {"one_body_elements_from_wannier90", (PyCFunction)c2py::pyfkw<fun_8>, METH_VARARGS | METH_KEYWORDS, doc_d_8.c_str()},
+   {"one_body_elements_on_high_symmetry_path", (PyCFunction)c2py::pyfkw<fun_9>, METH_VARARGS | METH_KEYWORDS, doc_d_9.c_str()},
+   {"one_body_elements_with_theta_projectors", (PyCFunction)c2py::pyfkw<fun_10>, METH_VARARGS | METH_KEYWORDS, doc_d_10.c_str()},
    {nullptr, nullptr, 0, nullptr} // Sentinel
 };
 

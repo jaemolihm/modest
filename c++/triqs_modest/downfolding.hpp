@@ -137,6 +137,21 @@ namespace triqs::modest {
       return P_k(k_idx, sigma_p, r_all, R_nu);
     }
 
+    /**
+     * @brief Get \f$ \delta_i P_{m\nu}^{\sigma}(\mathbf{k}) \f$ for a given \f$ \mathbf{k} \f$ and \f$ \sigma \f$.
+     *
+     * @param sigma Spin index \f$ \sigma \f$.
+     * @param k_idx Index of the k-point in the grid.
+     * @return 3D array view of \f$ \delta_i P_{m\nu}^{\sigma}(\mathbf{k}) \f$ in \f$ (\delta_i, m, \nu) \f$ for the given \f$ \mathbf{k} \f$
+     * and \f$ \sigma \f$. Returns empty optional if delta_P_k is not present.
+     */
+    [[nodiscard]] std::optional<nda::array_const_view<dcomplex, 3>> delta_P(long sigma, long k_idx) const {
+      if (!delta_P_k.has_value()) return std::nullopt;
+      auto sigma_p = sigma_to_data_idx(spin_kind, sigma);
+      auto R_nu    = nda::range(n_bands_per_k(k_idx, sigma_p));
+      return nda::array_const_view<dcomplex, 3>{delta_P_k.value()(k_idx, sigma_p, r_all, r_all, R_nu)};
+    }
+
     /// Rotates the local basis of the downfolding projector.
     downfolding_projector rotate_local_basis(nda::array<nda::matrix<dcomplex>, 2> const &U) const;
 
