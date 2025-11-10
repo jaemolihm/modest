@@ -389,7 +389,7 @@ Returns
              std::vector<std::string>{std::vector<std::string>{c2py::python_typename<nda::matrix_const_view<triqs::dcomplex>>()}});
 static const auto doc_d_5 =
    fun_5.doc(R"DOC(
-Get :math:`\delta P_{\delta m\nu}^{\sigma}(\mathbf{k})` for a given :math:`\mathbf{k}` and :math:`\sigma`.
+Get :math:`\delta_i P_{m\nu}^{\sigma}(\mathbf{k})` for a given :math:`\mathbf{k}` and :math:`\sigma`.
 
 Parameters
 ----------
@@ -401,7 +401,7 @@ k_idx : {par_1}
 Returns
 -------
 {ret_0}
-   3D array view of :math:`\delta P_{\delta m\nu}^{\sigma}(\mathbf{k})` in :math:`(\delta, m, \nu)` for the given :math:`\mathbf{k}`
+   3D array view of :math:`\delta_i P_{m\nu}^{\sigma}(\mathbf{k})` in :math:`(\delta_i, m, \nu)` for the given :math:`\mathbf{k}`
    and :math:`\sigma`. Returns empty optional if delta_P_k is not present.
 )DOC",
              std::vector<std::string>{c2py::join(std::vector<std::string>{c2py::python_typename<long>()}, ", "),

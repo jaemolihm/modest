@@ -61,7 +61,7 @@ namespace triqs::modest {
           // Compute (1- Y1 Sigma)^{-1} Y2
           auto B = calc_inv_G_G0(M, embedding_decomp, Sigma_dynamic, Sigma_static, om, sigma, Y1(n, r_all, r_all), Y2(n, r_all, r_all));
 
-          // Tr (Sigma * B)
+          // -Tr (Sigma * B)
           dcomplex tr_Sigma_B = 0;
           for (auto &&[alpha, R] : enumerated_sub_slices(embedding_decomp)) {
             auto [m, mp] = Sigma_dynamic(alpha, sigma).target_shape();
@@ -70,7 +70,7 @@ namespace triqs::modest {
             for (auto m1 : range(m))
               for (auto m2 : range(mp)) tr_Sigma_B += A(m1, m2) * C(m2, m1);
           }
-          result(n) -= obe.H.k_weights(k_idx) * tr_Sigma_B;
+          result(n) -= tr_Sigma_B;
         }
         return result;
       };
@@ -122,7 +122,7 @@ namespace triqs::modest {
         KS_term += obe.H.k_weights(k_idx) * KS_term_acc;
 
         //  2- Correction term
-        corr.data() += calc_correction_term(sigma, k_idx);
+        corr.data() += obe.H.k_weights(k_idx) * calc_correction_term(sigma, k_idx);
       }
     }
     KS_term = mpi::all_reduce(KS_term);
