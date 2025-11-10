@@ -261,6 +261,14 @@ class Converter(ConverterTools):
                 iorb += dim
 
         # Optionally, compute the projector derivatives for calculating forces and stresses
+        if self.adj_matrix is not None and pmn is None:
+            mpi.report('Warning: adj_matrix provided but PMN data not available. '
+                       'Projector derivatives for forces and stresses will not be computed.')
+
+        if self.adj_matrix is not None and not self.bloch_basis:
+            mpi.report('Warning: adj_matrix provided but bloch_basis is False. '
+                       'Projector derivatives for forces and stresses will not be computed.')
+
         if self.bloch_basis and pmn is not None and self.adj_matrix is not None:
             mpi.report('Computing projector derivatives for forces and stresses.')
             delta_u = compute_projector_derivatives(pmn, u_total, self.adj_matrix)
@@ -344,8 +352,7 @@ class Converter(ConverterTools):
                 things_to_save = ['energy_unit', 'n_k', 'k_dep_projection', 'SP', 'SO', 'charge_below', 'density_required',
                               'symm_op', 'n_shells', 'shells', 'n_corr_shells', 'corr_shells', 'use_rotations', 'rot_mat',
                               'rot_mat_time_inv', 'n_reps', 'dim_reps', 'T', 'n_orbitals', 'proj_mat', 'bz_weights', 'hopping',
-                              'n_inequiv_shells', 'corr_to_inequiv', 'inequiv_to_corr', 'kpt_weights', 'kpts', 'dft_code',
-                              'delta_proj_mat']
+                              'n_inequiv_shells', 'corr_to_inequiv', 'inequiv_to_corr', 'kpt_weights', 'kpts', 'dft_code']
                 if wan_centres is not None:
                     things_to_save.append('wan_centres')
                 if self.bloch_basis:
