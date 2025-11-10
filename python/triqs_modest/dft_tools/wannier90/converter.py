@@ -62,7 +62,7 @@ class Converter(ConverterTools):
     def __init__(self, seedname, hdf_filename=None, dft_subgrp='dft_input',
                  symmcorr_subgrp='dft_symmcorr_input', misc_subgrp='dft_misc_input',
                  repacking=False, rot_mat_type='hloc_diag', bloch_basis=False, add_lambda=None,
-                 w90zero=2e-6, reorder_orbital_and_spin_vasp5=False):
+                 w90zero=2e-6, reorder_orbital_and_spin_vasp5=False, adj_matrix=None):
         r"""
         Initialise the class.
 
@@ -95,6 +95,11 @@ class Converter(ConverterTools):
             orbitals with up and then all orbitals with down to the "usual"
             convention of every up orbital immediately being followed by its
             corresponding down orbital
+        adj_matrix : np.ndarray[n_wannier, n_atoms], optional
+            Adjacency matrix specifying which Wannier functions belong to which atoms.
+            Element (iw, iatom) is 1 if Wannier function iw is centered on atom iatom, 0 otherwise.
+            Used for computing projector derivatives from PMN data.
+            Needed to compute forces in charge-self-consistent DFT+DMFT.
         """
         self._name = 'Wannier90Converter'
         assert isinstance(seedname, str), self._name + \
@@ -117,6 +122,7 @@ class Converter(ConverterTools):
         self.bloch_basis = bloch_basis
         self.add_lambda = add_lambda
         self.reorder_orbital_and_spin_vasp5 = reorder_orbital_and_spin_vasp5
+        self.adj_matrix = adj_matrix
         if self.add_lambda is not None and len(self.add_lambda) != 3:
             raise ValueError('If specifying add_lambda, give three values.')
         if self.rot_mat_type not in ('hloc_diag', 'wannier', 'none'):
@@ -166,9 +172,9 @@ class Converter(ConverterTools):
         # Second, let's read the file containing the Hamiltonian in WF basis
         # produced by Wannier90
         (wannier_hr, u_total, ks_eigenvals, r_vector, r_degeneracy, n_wannier, n_bands,
-         k_mesh_from_umat, wan_centres) = read_all_wannier90_data(n_spin_blocks, dim_corr_shells,
-                                                                  self.w90_seed, self.add_lambda,
-                                                                  self.bloch_basis)
+         k_mesh_from_umat, wan_centres, pmn) = read_all_wannier90_data(n_spin_blocks, dim_corr_shells,
+                                                                        self.w90_seed, self.add_lambda,
+                                                                        self.bloch_basis)
 
         # Read high-symmetry k-path from _band.kpt
         w90_kpath_results = None
@@ -243,8 +249,8 @@ class Converter(ConverterTools):
         # NOTE: we assume that the correlated orbitals appear at the beginning of the H(R)
         # file and that the ordering of MLWFs matches the corr_shell info from
         # the input.
-        proj_mat = np.zeros([n_k, n_spin_blocks, n_corr_shells,
-                             max(crsh['dim'] for crsh in corr_shells), n_bands], dtype=complex)
+        max_crsh_dim = max(crsh['dim'] for crsh in corr_shells)
+        proj_mat = np.zeros([n_k, n_spin_blocks, n_corr_shells, max_crsh_dim, n_bands], dtype=complex)
         if not self.bloch_basis:
             u_total = np.array([[np.identity(n_wannier)] * n_k] * n_spin_blocks)
         for isp in range(n_spin_blocks):
@@ -253,6 +259,23 @@ class Converter(ConverterTools):
                 dim = corr_shells[icrsh]['dim']
                 proj_mat[:, isp, icrsh, :dim, :] = u_total[isp, :, iorb:iorb+dim, :]
                 iorb += dim
+
+        # Optionally, compute the projector derivatives for calculating forces and stresses
+        if self.bloch_basis and pmn is not None and self.adj_matrix is not None:
+            mpi.report('Computing projector derivatives for forces and stresses.')
+            delta_u = compute_projector_derivatives(pmn, u_total, self.adj_matrix)
+
+            # Map delta_u to the correlated shells
+            n_deltas = delta_u.shape[2]
+            delta_proj_mat = np.zeros([n_k, n_spin_blocks, n_deltas, n_corr_shells, max_crsh_dim, n_bands], dtype=complex)
+            for isp in range(n_spin_blocks):
+                iorb = 0
+                for icrsh in range(n_corr_shells):
+                    dim = corr_shells[icrsh]['dim']
+                    delta_proj_mat[:, isp, :, icrsh, :dim, :] = delta_u[isp, :, :, iorb:iorb+dim, :]
+                    iorb += dim
+        else:
+            delta_proj_mat = None
 
         # Then, compute the hoppings in reciprocal space
         wannier_hk = fourier_transform_hamiltonian(wannier_hr, r_vector, r_degeneracy, kpts)
@@ -321,11 +344,14 @@ class Converter(ConverterTools):
                 things_to_save = ['energy_unit', 'n_k', 'k_dep_projection', 'SP', 'SO', 'charge_below', 'density_required',
                               'symm_op', 'n_shells', 'shells', 'n_corr_shells', 'corr_shells', 'use_rotations', 'rot_mat',
                               'rot_mat_time_inv', 'n_reps', 'dim_reps', 'T', 'n_orbitals', 'proj_mat', 'bz_weights', 'hopping',
-                              'n_inequiv_shells', 'corr_to_inequiv', 'inequiv_to_corr', 'kpt_weights', 'kpts', 'dft_code']
+                              'n_inequiv_shells', 'corr_to_inequiv', 'inequiv_to_corr', 'kpt_weights', 'kpts', 'dft_code',
+                              'delta_proj_mat']
                 if wan_centres is not None:
                     things_to_save.append('wan_centres')
                 if self.bloch_basis:
                     things_to_save.append('kpt_basis')
+                if delta_proj_mat is not None:
+                    things_to_save.append('delta_proj_mat')
                 for it in things_to_save:
                     archive[self.dft_subgrp][it] = locals()[it]
 
@@ -347,6 +373,83 @@ class Converter(ConverterTools):
 
         # Makes Fermi energy a class variable for testing
         self.fermi_energy = fermi_energy
+
+
+def compute_projector_derivatives(pmn, u_total, adj_matrix):
+    r"""
+    Computes derivatives of projectors with respect to atomic positions from PMN data.
+
+    This function calculates ∂P^k_{wν}/∂R_a using the momentum matrix elements and
+    the Wannier-Bloch transformation. The result is used for computing forces and
+    stresses in DFT+DMFT calculations.
+
+    The derivative is computed using two terms:
+    1. Rigid shift term: i * c_{aw} * <w|p|ψ_ν>
+    2. Orthogonalization term: -(i/2) * Σ_w' (c_{aw} - c_{aw'}) * <w|p|w'> * <w'|ψ_ν>
+
+    where c_{aw} = 1 if Wannier function w belongs to atom a, 0 otherwise.
+
+    Parameters
+    ----------
+    pmn : np.ndarray[n_spin_blocks, n_k, 3, n_bands, n_bands] of complex
+        Momentum matrix elements <ψ_mk|p_idir|ψ_nk> in the Bloch basis
+    u_total : np.ndarray[n_spin_blocks, n_k, n_wannier, n_bands] of complex
+        Wannier-Bloch unitary transformation U^k_{wν}
+    adj_matrix : np.ndarray[n_wannier, n_atoms]
+        Adjacency matrix: element (iw, iatom) is 1 if Wannier function iw
+        is centered on atom iatom, 0 otherwise
+
+    Returns
+    -------
+    delta_proj : np.ndarray[n_spin_blocks, n_k, n_atoms * 3, n_wannier, n_bands] of complex
+        Projector derivatives ∂P^k_{wν}/∂R_{a,idir}
+    """
+    # Extract dimensions from u_total shape
+    n_spin_blocks, n_k, n_wannier, n_bands = u_total.shape
+    n_atoms = adj_matrix.shape[1]
+
+    # Validate dimensions
+    if adj_matrix.shape[0] != n_wannier:
+        raise ValueError(f'adj_matrix has wrong shape: expected ({n_wannier}, n_atoms), got {adj_matrix.shape}')
+
+    # Allocate output array
+    delta_proj = np.zeros((n_spin_blocks, n_k, n_atoms * 3, n_wannier, n_bands), dtype=complex)
+
+    for isp in range(n_spin_blocks):
+        for ik in range(n_k):
+            # Extract data for this spin and k-point
+            Uk = u_total[isp, ik, :, :]       # (n_wannier, n_bands)
+            pk_bb = pmn[isp, ik, :, :, :]     # (3, n_bands, n_bands)
+
+            # Transform momentum matrix to Wannier basis
+            pk_wb = np.zeros((3, n_wannier, n_bands), dtype=complex)
+            pk_ww = np.zeros((3, n_wannier, n_wannier), dtype=complex)
+
+            for idir in range(3):
+                pk_wb[idir] = Uk @ pk_bb[idir]                  # <w|p_idir|ψ>
+                pk_ww[idir] = pk_wb[idir] @ Uk.T.conj()         # <w|p_idir|w'>
+
+            for ipert in range(3 * n_atoms):
+                iatom = ipert // 3
+                idir = ipert % 3
+
+                # Rigid shift term: i * c_{aw} * <w|p|ψ_ν>
+                for iw in range(n_wannier):
+                    ci = adj_matrix[iw, iatom]
+                    if ci != 0:  # Only compute for non-zero adjacencies
+                        for iband in range(n_bands):
+                            delta_proj[isp, ik, ipert, iw, iband] = 1j * ci * pk_wb[idir, iw, iband]
+
+                # Orthogonalization term: -(i/2) * Σ_w' (c_{aw} - c_{aw'}) * <w|p|w'> * <w'|ψ_ν>
+                for iw in range(n_wannier):
+                    for jw in range(n_wannier):
+                        cij = adj_matrix[iw, iatom] - adj_matrix[jw, iatom]
+                        if cij != 0:  # Only compute for non-zero differences
+                            for iband in range(n_bands):
+                                delta_proj[isp, ik, ipert, iw, iband] += \
+                                    -0.5j * cij * pk_ww[idir, iw, jw] * Uk[jw, iband]
+
+    return delta_proj
 
 
 def read_input_file(inp_file, fortran_to_replace):
@@ -543,12 +646,14 @@ def read_wannier90_hr_data(wannier_seed):
 def read_wannier90_blochbasis_data(wannier_seed, n_wannier_spin):
     r"""
     Method for reading the files needed in the bloch_basis: seedname_u.mat,
-    seedname.eig and potentially seedname_u_dis.mat.
+    seedname.eig, potentially seedname_u_dis.mat, and optionally seedname.pmn.
 
     Parameters
     ----------
     wannier_seed : string
         seedname to Wannier90 output
+    n_wannier_spin : int
+        number of Wannier functions expected
 
     Returns
     -------
@@ -560,6 +665,8 @@ def read_wannier90_blochbasis_data(wannier_seed, n_wannier_spin):
         \epsilon_nk = Kohn-Sham eigenvalues (in eV) needed for entangled bands
     k_mesh : np.ndarray
         The k mesh read from the seedname_u.mat file to ensure consistency
+    pmn_arr_spin : np.ndarray or None
+        P^k_mn = projection matrix from trial orbitals to Bloch states (if .pmn file exists)
     """
     mpi.report('Writing h5 archive in projector formalism: H(k) defined in KS Bloch basis')
 
@@ -676,8 +783,58 @@ def read_wannier90_blochbasis_data(wannier_seed, n_wannier_spin):
         # no disentanglement; fill udis_mat_spin with identity
         udis_mat_spin = np.array([np.identity(n_wannier_spin, dtype=complex)] * n_k)
 
+    # ------------- Reading seedname.pmn (optional)
+    pmn_arr_spin = read_wannier90_pmn(wannier_seed)
+
     # return the data into variables
-    return u_mat_spin, udis_mat_spin, ks_eigenvals_spin, k_mesh
+    return u_mat_spin, udis_mat_spin, ks_eigenvals_spin, k_mesh, pmn_arr_spin
+
+
+def read_wannier90_pmn(wannier_seed):
+    r"""
+    Method for reading the seedname.pmn file produced by Wannier90.
+    This file contains the momentum matrix element pmn[k, ip, m, n] = <psi_mk|p_ip|psi_nk>
+    in the Bloch basis.
+
+    Parameters
+    ----------
+    wannier_seed : string
+        seedname to Wannier90 output
+
+    Returns
+    -------
+    pmn_arr : np.ndarray[n_k, 3, n_bands, n_bands] of complex or None
+        Momentum matrix pmn[k, ip, m, n] if file exists, None otherwise
+    """
+    pmn_filename = wannier_seed + '.pmn'
+
+    if not os.path.isfile(pmn_filename):
+        mpi.report(f'pmn file {pmn_filename} not found. Skipping.')
+        return None
+
+    mpi.report(f'Reading momentum matrix from {pmn_filename}')
+
+    # Parse number of bands and k points
+    with open(pmn_filename) as f:
+        f.readline()  # First line is header/comment
+        n_bands, n_k = [int(x) for x in f.readline().split()]
+
+    # Read full data (first two rows are metadata)
+    pmn_vec_reim = np.loadtxt(pmn_filename, skiprows = 2)
+
+    # Make it complex valued (two columns are real and imag parts)
+    pmn_vec = pmn_vec_reim[:, 0] + 1j * pmn_vec_reim[:, 1]
+
+    # Divide by 2 since Quantum ESPRESSO writes p/m = 2*p in the pmn file (m=0.5 in Rydberg units)
+    pmn_vec /= 2
+
+    # pw2wannier90.x writes data < psi_nk | p_idir | psi_mk > as 1d vector with
+    # the order (k, idir, m, n), where the rightmost index is the fastest.
+    # We want the array index to be (k, idir, n, m). So, we swap axes 2 and 3.
+    pmn_arr = pmn_vec.reshape(n_k, 3, n_bands, n_bands)
+    pmn_arr = np.swapaxes(pmn_arr, 2, 3)
+
+    return pmn_arr
 
 
 def read_wannier90_centres(wannier_seed):
@@ -760,6 +917,8 @@ def read_all_wannier90_data(n_spin_blocks, dim_corr_shells, w90_seed, add_lambda
         The k points as used in wannier for consistency. None if not bloch_basis
     centres: np.ndarray[n_spin_blocks, 3, 3] of float or None
         Centres of wannier functions
+    pmn : np.ndarray[n_spin_blocks, n_k, 3, n_bands, n_bands] of complex or None
+        momentum matrix in the Bloch basis. None if .pmn file not found or not bloch_basis
     """
     spin_w90name = ['_up', '_down']
     wannier_hr = []
@@ -768,6 +927,7 @@ def read_all_wannier90_data(n_spin_blocks, dim_corr_shells, w90_seed, add_lambda
         u_mat = []
         udis_mat = []
         ks_eigenvals = []
+        pmn_list = []
 
     for isp in range(n_spin_blocks):
         # build filename according to wannier90 conventions
@@ -789,8 +949,8 @@ def read_all_wannier90_data(n_spin_blocks, dim_corr_shells, w90_seed, add_lambda
             if mpi.is_master_node():
                 w90_results = read_wannier90_blochbasis_data(file_seed, n_wannier_spin)
             # number of R vectors, their indices, their degeneracy, number of WFs, H(R),
-            # U matrices, U(dis) matrices, band energies, k_mesh of U matrices
-            u_mat_spin, udis_mat_spin, ks_eigenvals_spin, k_mesh_from_umat = mpi.bcast(w90_results)
+            # U matrices, U(dis) matrices, band energies, k_mesh of U matrices, pmn matrix
+            u_mat_spin, udis_mat_spin, ks_eigenvals_spin, k_mesh_from_umat, pmn_spin = mpi.bcast(w90_results)
 
         w90_centres_results = None
         if mpi.is_master_node():
@@ -844,20 +1004,26 @@ def read_all_wannier90_data(n_spin_blocks, dim_corr_shells, w90_seed, add_lambda
             u_mat.append(u_mat_spin)
             udis_mat.append(udis_mat_spin)
             ks_eigenvals.append(ks_eigenvals_spin)
+            pmn_list.append(pmn_spin)
 
     if bloch_basis:
         # Definition of projectors in Wannier and Triqs different by Hermitian conjugate
         u_total = np.einsum('skab,skbc->skca', udis_mat, u_mat).conj()
         ks_eigenvals = np.array(ks_eigenvals)
+        if pmn_list[0] is not None:
+            pmn = np.array(pmn_list)
+        else:
+            pmn = None
     else:
         u_total = None
         ks_eigenvals = None
         k_mesh_from_umat = None
+        pmn = None
     wannier_hr = np.array(wannier_hr)
     centres = np.array(centres) if centres[0] is not None else None
 
     return (wannier_hr, u_total, ks_eigenvals, r_vector, r_degeneracy,
-            n_wannier, n_bands, k_mesh_from_umat, centres)
+            n_wannier, n_bands, k_mesh_from_umat, centres, pmn)
 
 
 def build_kmesh(kmesh_size, kmesh_mode=0):
