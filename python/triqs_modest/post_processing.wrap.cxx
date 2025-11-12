@@ -164,21 +164,59 @@ const std::string c2py::tp_doc<triqs::modest::spectral_function_w> =
 
 // ==================== module functions ====================
 
+// charge_density_correction
+static auto const fun_0 = c2py::dispatcher_f_kw_t{c2py::cfun(
+   [](const triqs::modest::one_body_elements_on_grid &obe, double mu,
+      const triqs::gfs::block2_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued> &Sigma_dynamic,
+      const nda::array<nda::matrix<triqs::dcomplex>, 2> &Sigma_static) {
+     return triqs::modest::charge_density_correction(obe, mu, Sigma_dynamic, Sigma_static);
+   },
+   "obe", "mu", "Sigma_dynamic", "Sigma_static")};
+
 // projected_spectral_function
-static auto const fun_0 = c2py::dispatcher_f_kw_t{
+static auto const fun_1 = c2py::dispatcher_f_kw_t{
    c2py::cfun([](const triqs::modest::one_body_elements_on_grid &obe_theta, const triqs::modest::downfolding_projector &Proj, double mu,
                  const triqs::gfs::block2_gf<triqs::mesh::refreq, triqs::gfs::matrix_valued> &Sigma_w,
                  double broadening) { return triqs::modest::projected_spectral_function(obe_theta, Proj, mu, Sigma_w, broadening); },
               "obe_theta", "Proj", "mu", "Sigma_w", "broadening"_a = 0.01)};
 
 // spectral_function_on_high_symmetry_path
-static auto const fun_1 = c2py::dispatcher_f_kw_t{
+static auto const fun_2 = c2py::dispatcher_f_kw_t{
    c2py::cfun([](const triqs::modest::one_body_elements_on_grid &obe, double mu,
                  const triqs::gfs::block2_gf<triqs::mesh::refreq, triqs::gfs::matrix_valued> &Sigma_w,
                  double broadening) { return triqs::modest::spectral_function_on_high_symmetry_path(obe, mu, Sigma_w, broadening); },
               "obe", "mu", "Sigma_w", "broadening"_a = 0.01)};
 
 static const auto doc_d_0 = fun_0.doc(
+   R"DOC(
+Compute the charge density correction from DMFT
+
+Compute the charge density correction in the band basis :math:`N_{\nu\nu'}(\mathbf{k})` from the lattice Green's function.
+
+Parameters
+----------
+obe : {par_0}
+   The one-body elements on the grid
+mu : {par_1}
+   The chemical potential
+Sigma_dynamic : {par_2}
+   The dynamic part of the self-energy
+Sigma_static : {par_3}
+   The static part of the self-energy
+
+Returns
+-------
+{ret_0}
+   The charge density correction in the band basis :math:`N_{\nu\nu'}(\mathbf{k})`
+)DOC",
+   std::vector<std::string>{
+      c2py::join(std::vector<std::string>{c2py::python_typename<const triqs::modest::one_body_elements_on_grid &>()}, ", "),
+      c2py::join(std::vector<std::string>{c2py::python_typename<double>()}, ", "),
+      c2py::join(std::vector<std::string>{c2py::python_typename<const triqs::gfs::block2_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued> &>()},
+                 ", "),
+      c2py::join(std::vector<std::string>{c2py::python_typename<const nda::array<nda::matrix<triqs::dcomplex>, 2> &>()}, ", ")},
+   std::vector<std::string>{std::vector<std::string>{c2py::python_typename<nda::array<triqs::dcomplex, 4>>()}});
+static const auto doc_d_1 = fun_1.doc(
    R"DOC(
 Compute the atom- and orbital-resolved spectral function (interacting density of states).
 
@@ -208,7 +246,7 @@ Returns
                  ", "),
       c2py::join(std::vector<std::string>{c2py::python_typename<double>()}, ", ")},
    std::vector<std::string>{std::vector<std::string>{c2py::python_typename<triqs::modest::spectral_function_w>()}});
-static const auto doc_d_1 = fun_1.doc(
+static const auto doc_d_2 = fun_2.doc(
    R"DOC(
 Compute momentum-resolved spectral function :math:`A^\sigma(k, \omega)` along high-symmetry path.
 
@@ -238,8 +276,9 @@ Returns
 //--------------------- module function table  -----------------------------
 
 static PyMethodDef module_methods[] = {
-   {"projected_spectral_function", (PyCFunction)c2py::pyfkw<fun_0>, METH_VARARGS | METH_KEYWORDS, doc_d_0.c_str()},
-   {"spectral_function_on_high_symmetry_path", (PyCFunction)c2py::pyfkw<fun_1>, METH_VARARGS | METH_KEYWORDS, doc_d_1.c_str()},
+   {"charge_density_correction", (PyCFunction)c2py::pyfkw<fun_0>, METH_VARARGS | METH_KEYWORDS, doc_d_0.c_str()},
+   {"projected_spectral_function", (PyCFunction)c2py::pyfkw<fun_1>, METH_VARARGS | METH_KEYWORDS, doc_d_1.c_str()},
+   {"spectral_function_on_high_symmetry_path", (PyCFunction)c2py::pyfkw<fun_2>, METH_VARARGS | METH_KEYWORDS, doc_d_2.c_str()},
    {nullptr, nullptr, 0, nullptr} // Sentinel
 };
 

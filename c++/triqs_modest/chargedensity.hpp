@@ -7,6 +7,9 @@
 
 namespace triqs::modest {
 
+  // JML TODO: The following functions are temporarily exposed to Python API for debugging purposes.
+  // JML TODO: These should be moved to detail namespace and made private once debugging is complete.
+
   /**
  * @brief Compute the charge density correction from DMFT
  *

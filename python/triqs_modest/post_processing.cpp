@@ -2,6 +2,7 @@
 
 #include "triqs_modest/postprocess.hpp"
 #include "triqs_modest/obe_tb.hpp"
+#include "triqs_modest/chargedensity.hpp"
 
 #include "obe.wrap.hxx"
 
