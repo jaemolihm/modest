@@ -54,18 +54,18 @@ namespace triqs::modest {
    * @param sigma Spin index.
    * @param Sigma_dynamic Dynamic part of the embedded self-energy.
    * @param Sigma_static Static part of the embedded self-energy.
-   * @return Force contributions as array[n_delta, n_omega].
+   * @return Force contributions as a gf with target shape (n_delta,): data()(n, δ).
    */
   template <typename Mesh>
-  nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  gf<Mesh, tensor_valued<1>> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                         block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
                                         nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
 
   // Explicit template instantiations for force_contribution_k_sigma
-  extern template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  extern template gf<imfreq, tensor_valued<1>> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                         block2_gf<imfreq, matrix_valued> const &Sigma_dynamic,
                                                         nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
-  extern template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  extern template gf<dlr_imfreq, tensor_valued<1>> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                         block2_gf<dlr_imfreq, matrix_valued> const &Sigma_dynamic,
                                                         nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
 
