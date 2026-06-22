@@ -35,7 +35,7 @@ namespace triqs::modest {
    * @param A Active subspace (from detail::detect_active_subspace).
    * @return δG0_QQ array with shape [n_delta, n_omega, rank, rank].
    */
-  nda::array<dcomplex, 4> delta_G0_C_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  nda::array<dcomplex, 4> compute_delta_G0_QQ(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                               std::vector<dcomplex> const &omegas, detail::active_subspace_t const &A);
 
   //-------------------------------------------------------------------------------------------
@@ -57,15 +57,15 @@ namespace triqs::modest {
    * @return Force contributions as array[n_delta, n_omega].
    */
   template <typename Mesh>
-  nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                         block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
                                         nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
 
-  // Explicit template instantiations for trace_forces
-  extern template nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  // Explicit template instantiations for force_contribution_k_sigma
+  extern template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                         block2_gf<imfreq, matrix_valued> const &Sigma_dynamic,
                                                         nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
-  extern template nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  extern template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                         block2_gf<dlr_imfreq, matrix_valued> const &Sigma_dynamic,
                                                         nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
 
