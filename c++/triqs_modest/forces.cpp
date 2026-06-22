@@ -11,7 +11,7 @@ namespace triqs::modest {
   // Pulay term δG0_QQ in the active subspace, built with the same flow as
   // detail::compute_bare_projected's G0_QQ (Dinv · index-tensor, one batched gemm per δ).
   // ===================================================================================
-  nda::array<dcomplex, 4> delta_G0_C_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  nda::array<dcomplex, 4> compute_delta_G0_QQ(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                              std::vector<dcomplex> const &omegas, detail::active_subspace_t const &A) {
     auto n_nu          = obe.H.N_nu(sigma, k_idx);
     auto R_nu          = nda::range(n_nu);
@@ -38,15 +38,15 @@ namespace triqs::modest {
         for (auto b : range(rank))
           for (auto nu : R_nu)
             dQQ(delta_i, nu, a, b) = P_obe(active[a], nu) * conj((*delta_P)(delta_i, active[b], nu))
-               + (*delta_P)(delta_i, active[a], nu) * conj(P_obe(active[b], nu));
+                                   + (*delta_P)(delta_i, active[a], nu) * conj(P_obe(active[b], nu));
 
     // δG0_QQ(δ, n, a, b) = Σ_ν Dinv(n, ν) · dQQ(δ, ν, a, b) — one batched gemm per δ.
     auto dG0_QQ = nda::zeros<dcomplex>(n_delta, n_omega, rank, rank);
     if (rank > 0)
       for (auto delta_i : range(n_delta)) {
-        auto dQQ_i = dQQ(delta_i, r_all, r_all, r_all);
-        auto out_i = dG0_QQ(delta_i, r_all, r_all, r_all);
-        nda::blas::gemm(1, Dinv, detail::as_2d(dQQ_i), 0, detail::as_2d(out_i));
+        auto dQQ_i    = dQQ(delta_i, r_all, r_all, r_all);
+        auto dG0_QQ_i = dG0_QQ(delta_i, r_all, r_all, r_all);
+        nda::blas::gemm(1, Dinv, detail::as_2d(dQQ_i), 0, detail::as_2d(dG0_QQ_i));
       }
     return dG0_QQ;
   }
@@ -54,7 +54,7 @@ namespace triqs::modest {
   //-------------------------------------------------------------------------------------------
   // Compute force contributions for a given k-point and spin (rank-reduced Woodbury).
   template <typename Mesh>
-  nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                        block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
                                        nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static) {
 
@@ -77,7 +77,7 @@ namespace triqs::modest {
 
     // Bare G0_QQ (active block of P M₀⁻¹ P†) and the Pulay term δG0_QQ, both rank × rank.
     auto bare   = detail::compute_bare_projected(obe, obe.P, mu, k_idx, sigma, omegas, active);
-    auto dG0_QQ = delta_G0_C_k_sigma(obe, mu, k_idx, sigma, omegas, active);
+    auto dG0_QQ = compute_delta_G0_QQ(obe, mu, k_idx, sigma, omegas, active);
 
     // Per ω: K = Σ_a · (I − G0_QQ · Σ_a)⁻¹ (apply_K); force contribution = tr(K · δG0_QQ[δ]).
     for (long n = 0; n < long(omegas.size()); ++n) {
@@ -111,48 +111,35 @@ namespace triqs::modest {
     auto n_sigma     = Sigma_dynamic.size2();
     auto n_k         = obe.H.n_k();
     auto const &mesh = Sigma_dynamic(0, 0).mesh();
+    auto n_w         = long(mesh.size());
 
-    // Create n_delta gf objects to accumulate force contributions
-    std::vector<gf<Mesh, scalar_valued>> force_gfs;
-    force_gfs.reserve(n_delta);
-    for (auto i : range(n_delta)) { force_gfs.push_back(gf{mesh}); }
-
-    // ---------
+    // Accumulate the frequency-resolved force contribution  Σ_{k,σ} w_k · contrib(δ, n)  into a single
+    // [n_delta, n_w] array: each thread sums its k-chunk into a private copy, then one combine.
+    auto force_data        = nda::zeros<dcomplex>(n_delta, n_w);
     mpi::communicator comm = {}; // for now using default comm in MPI
 
-#pragma omp parallel default(none) shared(n_k, comm, n_sigma, obe, mu, Sigma_dynamic, Sigma_static, n_delta, force_gfs, mesh)
+#pragma omp parallel default(none) shared(n_k, comm, n_sigma, obe, mu, Sigma_dynamic, Sigma_static, n_delta, n_w, force_data)
     {
-      // Thread-local gf objects
-      std::vector<gf<Mesh, scalar_valued>> thread_force_gfs;
-      thread_force_gfs.reserve(n_delta);
-      for (auto i : range(n_delta)) { thread_force_gfs.push_back(gf{mesh}); }
-
+      auto local = nda::zeros<dcomplex>(n_delta, n_w);
 #pragma omp for collapse(2)
       for (auto k_idx : mpi::chunk(range(n_k), comm)) {
         for (auto sigma : range(n_sigma)) {
-          //  Correction term
-          auto contrib = trace_forces(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static); // [n_delta, n_omega]
-
-          // Accumulate into gf objects with k-weights
-          auto w_k = obe.H.k_weights(k_idx);
-          for (auto delta_i : range(n_delta)) {
-            for (auto n : range(mesh.size())) { thread_force_gfs[delta_i].data()(n) += w_k * contrib(delta_i, n); }
-          }
+          // Force contribution for this (k, σ): [n_delta, n_w].
+          auto contrib = force_contribution_k_sigma(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
+          local += obe.H.k_weights(k_idx) * contrib;
         }
       }
-
-// Reduce thread results
 #pragma omp critical
-      {
-        for (auto delta_i : range(n_delta)) { force_gfs[delta_i].data() += thread_force_gfs[delta_i].data(); }
-      }
+      force_data += local;
     }
+    force_data = mpi::all_reduce(force_data);
 
-    // MPI reduce and compute final result
+    // Per δ: forces = −dF/dτ = −density(G_δ), where G_δ.data = force_data(δ, ·).
     auto result = nda::zeros<double>(n_delta);
     for (auto delta_i : range(n_delta)) {
-      force_gfs[delta_i] = mpi::all_reduce(force_gfs[delta_i]);
-      result(delta_i)    = -real(density(force_gfs[delta_i])); // density(force_gfs) = dF/dtau, and forces = -dF/dtau.
+      auto g          = gf<Mesh, scalar_valued>{mesh};
+      g.data()        = force_data(delta_i, r_all);
+      result(delta_i) = -real(density(g));
     }
 
     return result;
@@ -160,10 +147,10 @@ namespace triqs::modest {
 
   // ------------------------------------------------------------------------------------
   // Explicit template instantiations
-  template nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                  block2_gf<imfreq, matrix_valued> const &Sigma_dynamic,
                                                  nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
-  template nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                  block2_gf<dlr_imfreq, matrix_valued> const &Sigma_dynamic,
                                                  nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
 
