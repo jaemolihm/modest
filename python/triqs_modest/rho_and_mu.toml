@@ -21,9 +21,10 @@ namespaces = "triqs triqs::modest"
 #    if reject_names and reject_names match Qname : skip X
 #    else keep X.
 
-# JML TODO: delta_G0_C_k_sigma and trace_forces are temporarily exposed for debugging purposes.
-# JML TODO: These should be removed from the match pattern once debugging is complete.
-match_names = "triqs::modest::(density|find_chemical_potential|density_nk|forces|delta_G0_C_k_sigma|trace_forces)"
+# JML TODO: trace_forces is temporarily exposed for debugging purposes.
+# JML TODO: It should be removed from the match pattern once debugging is complete.
+# (delta_G0_C_k_sigma is no longer wrappable: its signature takes detail::active_subspace_t.)
+match_names = "triqs::modest::(density|find_chemical_potential|density_nk|forces|trace_forces)"
 
 # Only keep elements declared in files matching the pattern
 # match_files = "" # String must be a regex
