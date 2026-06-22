@@ -7,146 +7,85 @@
 
 namespace triqs::modest {
 
-  // JML TODO: The following functions are temporarily exposed to Python API for debugging purposes.
-  // JML TODO: These should be moved to detail namespace and made private once debugging is complete.
-
-  namespace {
-    // ============================================
-    // Bare projected propagator G0_𝓒[ω, m, m'] = Σ_ν P[m, ν] (ω + μ - H_k(ν))^{-1} conj(P[m', ν])
-    // (full M × M Woodbury kernel). Kept local to the forces translation unit: the woodbury-port
-    // refactor replaced the shared detail::G0_C_k_sigma with rank-reduced helpers in
-    // lattice_gf_helpers.hpp, which we are intentionally not modifying. See forces.hpp.
-    nda::array<dcomplex, 3> G0_C_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
-                                         std::vector<dcomplex> const &omegas) {
-      auto n_nu = obe.H.N_nu(sigma, k_idx);
-      auto R_nu = nda::range(n_nu);
-      auto M    = obe.C_space.dim();
-
-      // Compute Dinv(omega, nu) = 1/(om + mu - Hk(nu))
-      auto n_omega = omegas.size();
-      auto Dinv    = nda::matrix<dcomplex>(n_omega, n_nu);
-      auto Hk      = obe.H.H(sigma, k_idx); // Hk[nu,nu']
-      for (auto [n, om] : itertools::enumerate(omegas))
-        for (auto nu : R_nu) Dinv(n, nu) = 1 / (om + mu - Hk(nu, nu));
-
-      // Compute M[nu, m, m'] = P[m, nu ] conj(P)[m', nu ]
-      auto PP = nda::zeros<dcomplex>(n_nu, M, M);
-      auto P  = obe.P.P(sigma, k_idx);
-      for (auto m : range(M))
-        for (auto mp : range(M))
-          for (auto nu : R_nu) PP(nu, m, mp) = P(m, nu) * conj(P(mp, nu));
-
-      // Compute Y [ w, m, m'] = D[w, nu] * PP[nu, m, m'] (sum over nu = matmul).
-      auto Y       = nda::zeros<dcomplex>(n_omega, M, M);
-      auto M_asmat = cmat_vt{nda::group_indices_view(PP, nda::idx_group<0>, nda::idx_group<1, 2>)};
-      auto Y_asmat = cmat_vt{nda::group_indices_view(Y, nda::idx_group<0>, nda::idx_group<1, 2>)};
-      nda::blas::gemm(1, Dinv, M_asmat, 0, Y_asmat);
-      return Y;
-    }
-  } // namespace
-
-  // ============================================
-  // Compute delta_G Pulay term using P and delta_P for force calculations
-  // Formula: delta_G[delta_i, omega, m, m'] = P * Dinv * delta_P[delta_i]^dagger + delta_P[delta_i] * Dinv * P^dagger
-  // Using the same efficient BLAS pattern as G0_C_k_sigma
+  // ===================================================================================
+  // Pulay term δG0_QQ in the active subspace, built with the same flow as
+  // detail::compute_bare_projected's G0_QQ (Dinv · index-tensor, one batched gemm per δ).
+  // ===================================================================================
   nda::array<dcomplex, 4> delta_G0_C_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
-                                              std::vector<dcomplex> const &omegas) {
-    auto n_nu = obe.H.N_nu(sigma, k_idx);
-    auto R_nu = nda::range(n_nu);
-    auto M    = obe.C_space.dim();
+                                             std::vector<dcomplex> const &omegas, detail::active_subspace_t const &A) {
+    auto n_nu          = obe.H.N_nu(sigma, k_idx);
+    auto R_nu          = nda::range(n_nu);
+    auto rank          = A.rank;
+    auto n_omega       = long(omegas.size());
+    auto P_obe         = obe.P.P(sigma, k_idx);       // [M, n_nu]
+    auto Hk            = obe.H.H(sigma, k_idx);        // Hk[nu, nu']
+    auto const &active = A.c_indices;
 
-    // Get P and delta_P
-    auto P       = obe.P.P(sigma, k_idx);       // [M, n_nu]
     auto delta_P = obe.P.delta_P(sigma, k_idx); // optional<[n_delta, M, n_nu]>
-
     if (!delta_P.has_value()) { throw std::runtime_error("delta_P is not present in the projector. Cannot compute forces."); }
-
     auto n_delta = delta_P->shape()[0];
 
-    // Compute Dinv(omega, nu) = 1/(om + mu - Hk(nu))
-    auto n_omega = omegas.size();
-    auto Dinv    = nda::matrix<dcomplex>(n_omega, n_nu);
-    auto Hk      = obe.H.H(sigma, k_idx); // Hk[nu,nu']
+    // Dinv(n, ν) = 1/(ω_n + μ − ε_ν(k)).
+    auto Dinv = nda::matrix<dcomplex>(n_omega, n_nu);
+    for (auto n : range(n_omega))
+      for (auto nu : R_nu) Dinv(n, nu) = 1.0 / (omegas[n] + mu - Hk(nu, nu));
 
-    for (auto [n, om] : itertools::enumerate(omegas))
-      for (auto nu : R_nu) Dinv(n, nu) = 1.0 / (om + mu - Hk(nu, nu));
-
-    // Precompute combined product matrix PdP[delta_i, nu, m, m']
-    // PdP = P[m, nu] * conj(delta_P[delta_i, m', nu]) + delta_P[delta_i, m, nu] * conj(P[m', nu])
-    auto PdP = nda::zeros<dcomplex>(n_delta, n_nu, M, M);
+    // Index tensor over band ν, batched over δ.  Q = obe.P[active rows], δQ = delta_P[active rows]:
+    //   dQQ(δ, ν, a, b) = Q(a,ν)·conj(δQ(δ,b,ν)) + δQ(δ,a,ν)·conj(Q(b,ν))
+    auto dQQ = nda::zeros<dcomplex>(n_delta, n_nu, rank, rank);
     for (auto delta_i : range(n_delta))
-      for (auto nu : R_nu)
-        for (auto m : range(M))
-          for (auto mp : range(M))
-            PdP(delta_i, nu, m, mp) = P(m, nu) * conj((*delta_P)(delta_i, mp, nu)) + (*delta_P)(delta_i, m, nu) * conj(P(mp, nu));
+      for (auto a : range(rank))
+        for (auto b : range(rank))
+          for (auto nu : R_nu)
+            dQQ(delta_i, nu, a, b) = P_obe(active[a], nu) * conj((*delta_P)(delta_i, active[b], nu))
+               + (*delta_P)(delta_i, active[a], nu) * conj(P_obe(active[b], nu));
 
-    // Compute dG0[delta_i, omega, m, m'] = Dinv[omega, nu] * PdP[delta_i, nu, m, m']
-    auto dG0 = nda::zeros<dcomplex>(n_delta, n_omega, M, M);
-    for (auto delta_i : range(n_delta)) {
-      // Extract PdP for this delta_i: [nu, m, m']
-      auto PdP_i = PdP(delta_i, r_all, r_all, r_all);
-
-      // Temporary storage for this delta_i's result
-      auto Y = nda::zeros<dcomplex>(n_omega, M, M);
-
-      // Reshape to [nu, M*M] and [omega, M*M] for BLAS gemm
-      auto PdP_asmat = cmat_vt{nda::group_indices_view(PdP_i, nda::idx_group<0>, nda::idx_group<1, 2>)};
-      auto Y_asmat   = cmat_vt{nda::group_indices_view(Y, nda::idx_group<0>, nda::idx_group<1, 2>)};
-
-      // Y[omega, m, m'] = Dinv[omega, nu] * PdP_i[nu, m, m']
-      nda::blas::gemm(1, Dinv, PdP_asmat, 0, Y_asmat);
-
-      // Store result
-      dG0(delta_i, r_all, r_all, r_all) = Y;
-    }
-
-    return dG0;
+    // δG0_QQ(δ, n, a, b) = Σ_ν Dinv(n, ν) · dQQ(δ, ν, a, b) — one batched gemm per δ.
+    auto dG0_QQ = nda::zeros<dcomplex>(n_delta, n_omega, rank, rank);
+    if (rank > 0)
+      for (auto delta_i : range(n_delta)) {
+        auto dQQ_i = dQQ(delta_i, r_all, r_all, r_all);
+        auto out_i = dG0_QQ(delta_i, r_all, r_all, r_all);
+        nda::blas::gemm(1, Dinv, detail::as_2d(dQQ_i), 0, detail::as_2d(out_i));
+      }
+    return dG0_QQ;
   }
 
   //-------------------------------------------------------------------------------------------
-  // Compute force contributions for a given k-point and spin
+  // Compute force contributions for a given k-point and spin (rank-reduced Woodbury).
   template <typename Mesh>
   nda::array<dcomplex, 2> trace_forces(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
-                                        block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
-                                        nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static) {
+                                       block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
+                                       nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static) {
 
-    auto M                = obe.C_space.dim();
-    auto &mesh            = Sigma_dynamic(0, 0).mesh();
-    auto omegas           = mesh | tl::to<std::vector<dcomplex>>();
-    auto embedding_decomp = get_struct(Sigma_dynamic).dims(r_all, 0) | tl::to<std::vector>();
+    auto const &mesh = Sigma_dynamic(0, 0).mesh();
+    auto omegas      = mesh | tl::to<std::vector<dcomplex>>();
 
-    // Get Y1 and Y2
-    auto Y1 = G0_C_k_sigma(obe, mu, k_idx, sigma, omegas);       // Y1 = G0_𝓒 [n_omega, M, M]
-    auto Y2 = delta_G0_C_k_sigma(obe, mu, k_idx, sigma, omegas); // delta_G Pulay term [n_delta, n_omega, M, M]
+    // delta_P must be present for the Pulay term.
+    auto delta_P = obe.P.delta_P(sigma, k_idx);
+    if (!delta_P.has_value()) { throw std::runtime_error("delta_P is not present in the projector. Cannot compute forces."); }
+    auto n_delta = delta_P->shape()[0];
 
-    auto n_delta = Y2.shape()[0];
-    auto result  = nda::zeros<dcomplex>(n_delta, omegas.size());
+    auto result = nda::zeros<dcomplex>(n_delta, omegas.size());
 
-    for (auto &&[n, om] : itertools::enumerate(mesh)) {
+    // Active subspace + block-diagonal Σ_active (Σ_total = Σ_dynamic + Σ_static), as in density().
+    auto Sigma_total = detail::make_sigma_total(Sigma_dynamic, Sigma_static);
+    auto decomp      = get_struct(Sigma_total).dims(r_all, 0) | tl::to<std::vector>();
+    auto active      = detail::detect_active_subspace(Sigma_total, decomp);
+    if (active.rank == 0) return result; // Σ ≡ 0 ⇒ no force correction.
+    auto Sa_n = detail::compute_sigma_active(Sigma_total, active, sigma); // [n_w, rank, rank]
+
+    // Bare G0_QQ (active block of P M₀⁻¹ P†) and the Pulay term δG0_QQ, both rank × rank.
+    auto bare   = detail::compute_bare_projected(obe, obe.P, mu, k_idx, sigma, omegas, active);
+    auto dG0_QQ = delta_G0_C_k_sigma(obe, mu, k_idx, sigma, omegas, active);
+
+    // Per ω: K = Σ_a · (I − G0_QQ · Σ_a)⁻¹ (apply_K); force contribution = tr(K · δG0_QQ[δ]).
+    for (long n = 0; n < long(omegas.size()); ++n) {
+      auto Sa  = nda::matrix<dcomplex>{Sa_n(n, r_all, r_all)};
+      auto Yaa = nda::matrix<dcomplex>{bare.G0_QQ(n, r_all, r_all)};
       for (auto delta_i : range(n_delta)) {
-        // Compute (1- Y1 Sigma)^{-1} Y2[delta_i] in the full M x M space (block-sparse Sigma).
-        auto YS = nda::matrix<dcomplex, nda::F_layout>::zeros(M, M);
-
-        for (auto &&[alpha, R] : enumerated_sub_slices(embedding_decomp)) {
-          auto Sigma = nda::matrix<dcomplex>{Sigma_dynamic(alpha, sigma)[om] + Sigma_static(alpha, sigma)};
-          nda::blas::gemm(-1, Y1(n, r_all, R), Sigma, 0, YS(r_all, R));
-        }
-
-        // Z = (1 -YS)^{-1} * Y2[delta_i]
-        for (auto m : range(M)) YS(m, m) += 1;
-        auto B = nda::matrix<dcomplex, nda::F_layout>{Y2(delta_i, n, r_all, r_all)};
-        Ainv_B(YS, B);
-
-        // Tr (Sigma * B)
-        dcomplex tr_Sigma_B = 0;
-        for (auto &&[alpha, R] : enumerated_sub_slices(embedding_decomp)) {
-          auto [m_dim, mp_dim] = Sigma_dynamic(alpha, sigma).target_shape();
-          auto A               = Sigma_dynamic(alpha, sigma).data()(n, r_all, r_all) + Sigma_static(alpha, sigma);
-          auto C               = B(R, R);
-          for (auto m1 : range(m_dim))
-            for (auto m2 : range(mp_dim)) tr_Sigma_B += A(m1, m2) * C(m2, m1);
-        }
-        result(delta_i, n) = tr_Sigma_B;
+        auto K_dQQ         = detail::apply_K(Sa, Yaa, dG0_QQ(delta_i, n, r_all, r_all)); // K · δG0_QQ[δ]
+        result(delta_i, n) = nda::trace(K_dQQ);
       }
     }
     return result;
@@ -158,8 +97,8 @@ namespace triqs::modest {
    */
   template <typename Mesh>
   nda::array<double, 1> forces(one_body_elements_on_grid const &obe, double mu,
-                                block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
-                                nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static) {
+                               block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
+                               nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static) {
 
     // Check for matrix-valued case
     if (obe.H.matrix_valued) { throw std::runtime_error("Matrix-valued Hamiltonian not supported for forces calculation."); }
@@ -195,9 +134,9 @@ namespace triqs::modest {
           auto contrib = trace_forces(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static); // [n_delta, n_omega]
 
           // Accumulate into gf objects with k-weights
-          auto k_weight = obe.H.k_weights(k_idx);
+          auto w_k = obe.H.k_weights(k_idx);
           for (auto delta_i : range(n_delta)) {
-            for (auto n : range(mesh.size())) { thread_force_gfs[delta_i].data()(n) += k_weight * contrib(delta_i, n); }
+            for (auto n : range(mesh.size())) { thread_force_gfs[delta_i].data()(n) += w_k * contrib(delta_i, n); }
           }
         }
       }
@@ -213,7 +152,7 @@ namespace triqs::modest {
     auto result = nda::zeros<double>(n_delta);
     for (auto delta_i : range(n_delta)) {
       force_gfs[delta_i] = mpi::all_reduce(force_gfs[delta_i]);
-      result(delta_i)    = -real(density(force_gfs[delta_i]));  // density(force_gfs) = dF/dtau, and forces = -dF/dtau.
+      result(delta_i)    = -real(density(force_gfs[delta_i])); // density(force_gfs) = dF/dtau, and forces = -dF/dtau.
     }
 
     return result;

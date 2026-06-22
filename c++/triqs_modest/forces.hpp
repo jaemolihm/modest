@@ -8,6 +8,7 @@
 #include <triqs/gfs.hpp>
 #include <itertools/omp_chunk.hpp>
 #include "./downfolding.hpp"
+#include "./lattice_gf_helpers.hpp"
 #include "utils/defs.hpp"
 #include "utils/enumerate_slice.hpp"
 #include "utils/gf_supp.hpp"
@@ -15,28 +16,36 @@
 
 namespace triqs::modest {
 
-  // JML TODO: The following functions are temporarily exposed to Python API for debugging purposes.
-  // JML TODO: These should be moved to detail namespace and made private once debugging is complete.
-
   //-------------------------------------------------------------------------------------------
   /**
    * @ingroup forces
-   * @brief Compute delta_G Pulay term using P and delta_P for force calculations.
+   * @brief Pulay term \f$ \delta G^0_{QQ} \f$ in the active subspace.
+   *
+   * @details Active-active block of the bare projected-propagator derivative w.r.t. the projector,
+   * built with the same flow as detail::compute_bare_projected's `G0_QQ`. With `Q = obe.P[active rows]`
+   * and `δQ = δP[active rows]`:
+   * \f[ \delta G^0_{QQ}(\delta, \omega, a, b) = \sum_\nu \mathrm{Dinv}(\omega, \nu)\,
+   *     \big[ Q_{a\nu}\,\overline{\delta Q_{\delta b\nu}} + \delta Q_{\delta a\nu}\,\overline{Q_{b\nu}} \big]. \f]
    *
    * @param obe One-body elements (must contain delta_P projector derivatives).
    * @param mu Chemical potential.
    * @param k_idx K-point index.
    * @param sigma Spin index.
    * @param omegas Vector of complex frequencies.
-   * @return Delta_G array with shape [n_delta, n_omega, M, M].
+   * @param A Active subspace (from detail::detect_active_subspace).
+   * @return δG0_QQ array with shape [n_delta, n_omega, rank, rank].
    */
   nda::array<dcomplex, 4> delta_G0_C_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
-                                              std::vector<dcomplex> const &omegas);
+                                              std::vector<dcomplex> const &omegas, detail::active_subspace_t const &A);
 
   //-------------------------------------------------------------------------------------------
   /**
    * @ingroup forces
-   * @brief Compute force contributions for a given k-point and spin.
+   * @brief Compute force contributions for a given k-point and spin (rank-reduced Woodbury).
+   *
+   * @details Per ω, the force trace reduces to the active subspace exactly as in density():
+   * \f$ \mathrm{tr}\big( K \cdot \delta G^0_{QQ}[\delta] \big) \f$ with
+   * \f$ K = \Sigma_a (I - G^0_{QQ}\,\Sigma_a)^{-1} \f$ = detail::apply_K.
    *
    * @tparam Mesh The mesh type.
    * @param obe One-body elements.
