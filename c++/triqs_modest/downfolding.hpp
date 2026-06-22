@@ -7,6 +7,7 @@
 #include <triqs/gfs.hpp>
 #include <triqs/utility/macros.hpp>
 #include <type_traits>
+#include <optional>
 #include "./local_space.hpp"
 #include "./ibz_symmetry_ops.hpp"
 #include "utils/nda_supp.hpp"
@@ -122,9 +123,10 @@ namespace triqs::modest {
    *   \f$ \sum_{ \nu} P^{\sigma}_{m\nu}(\mathbf{k}) P^{\dagger\sigma}_{\nu m'}(\mathbf{k}) = \delta_{mm'} \f$.
    */
   struct downfolding_projector {
-    spin_kind_e spin_kind;             ///< Spin kind of the one-body data.
-    nda::array<dcomplex, 4> P_k;       ///< Projector \f$ P_{m\nu}^{\sigma}(\mathbf{k}) \f$.
-    nda::array<long, 2> n_bands_per_k; ///< Number of bands for each k-point and \f$ \sigma \f$.
+    spin_kind_e spin_kind;                            ///< Spin kind of the one-body data.
+    nda::array<dcomplex, 4> P_k;                      ///< Projector \f$ P_{m\nu}^{\sigma}(\mathbf{k}) \f$.
+    std::optional<nda::array<dcomplex, 5>> delta_P_k; ///< Projector derivative \f$ \delta P_{m\nu}^{\sigma}(\mathbf{k}) \f$.
+    nda::array<long, 2> n_bands_per_k;                ///< Number of bands for each k-point and \f$ \sigma \f$.
 
     /// Equality comparison operator.
     bool operator==(downfolding_projector const &) const = default;
@@ -133,6 +135,16 @@ namespace triqs::modest {
     C2PY_IGNORE friend void mpi_broadcast(downfolding_projector &x, mpi::communicator c = {}, int root = 0) {
       mpi::broadcast(x.spin_kind, c, root);
       mpi::broadcast(x.P_k, c, root);
+
+      // Broadcast whether delta_P_k has a value
+      bool has_delta = x.delta_P_k.has_value();
+      mpi::broadcast(has_delta, c, root);
+
+      if (has_delta) {
+        if (!x.delta_P_k.has_value()) x.delta_P_k.emplace();
+        mpi::broadcast(x.delta_P_k.value(), c, root);
+      }
+
       mpi::broadcast(x.n_bands_per_k, c, root);
     }
 
@@ -156,6 +168,21 @@ namespace triqs::modest {
       auto sigma_p = sigma_to_data_idx(spin_kind, sigma);
       auto R_nu    = nda::range(n_bands_per_k(k_idx, sigma_p));
       return P_k(k_idx, sigma_p, r_all, R_nu);
+    }
+
+    /**
+     * @brief Get \f$ \delta_i P_{m\nu}^{\sigma}(\mathbf{k}) \f$ for a given \f$ \mathbf{k} \f$ and \f$ \sigma \f$.
+     *
+     * @param sigma Spin index \f$ \sigma \f$.
+     * @param k_idx Index of the k-point in the grid.
+     * @return 3D array view of \f$ \delta_i P_{m\nu}^{\sigma}(\mathbf{k}) \f$ in \f$ (\delta_i, m, \nu) \f$ for the given \f$ \mathbf{k} \f$
+     * and \f$ \sigma \f$. Returns empty optional if delta_P_k is not present.
+     */
+    [[nodiscard]] std::optional<nda::array_const_view<dcomplex, 3>> delta_P(long sigma, long k_idx) const {
+      if (!delta_P_k.has_value()) return std::nullopt;
+      auto sigma_p = sigma_to_data_idx(spin_kind, sigma);
+      auto R_nu    = nda::range(n_bands_per_k(k_idx, sigma_p));
+      return nda::array_const_view<dcomplex, 3>{delta_P_k.value()(k_idx, sigma_p, r_all, r_all, R_nu)};
     }
 
     /// Rotates the local basis of the downfolding projector.

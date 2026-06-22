@@ -1,6 +1,7 @@
 #include <c2py/c2py.hpp>
 
 #include "triqs_modest/density.hpp"
+#include "triqs_modest/forces.hpp"
 #include "triqs_modest/obe_tb.hpp"
 #include <triqs/experimental.hpp>
 
