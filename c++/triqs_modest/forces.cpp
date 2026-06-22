@@ -7,6 +7,9 @@
 
 namespace triqs::modest {
 
+  // OMP reduction for the [n_delta, n_w] force accumulator (cf. gf_sum in density.hpp).
+#pragma omp declare reduction(array_sum : nda::array<dcomplex, 2> : omp_out += omp_in) initializer(omp_priv = nda::zeros<dcomplex>(omp_orig.shape()))
+
   // ===================================================================================
   // Pulay term δG0_QQ in the active subspace, built with the same flow as
   // detail::compute_bare_projected's G0_QQ (Dinv · index-tensor, one batched gemm per δ).
@@ -114,23 +117,17 @@ namespace triqs::modest {
     auto n_w         = long(mesh.size());
 
     // Accumulate the frequency-resolved force contribution  Σ_{k,σ} w_k · contrib(δ, n)  into a single
-    // [n_delta, n_w] array: each thread sums its k-chunk into a private copy, then one combine.
+    // [n_delta, n_w] array via the declared OMP array reduction, then combine across MPI ranks.
     auto force_data        = nda::zeros<dcomplex>(n_delta, n_w);
     mpi::communicator comm = {}; // for now using default comm in MPI
 
-#pragma omp parallel default(none) shared(n_k, comm, n_sigma, obe, mu, Sigma_dynamic, Sigma_static, n_delta, n_w, force_data)
-    {
-      auto local = nda::zeros<dcomplex>(n_delta, n_w);
-#pragma omp for collapse(2)
-      for (auto k_idx : mpi::chunk(range(n_k), comm)) {
-        for (auto sigma : range(n_sigma)) {
-          // Force contribution for this (k, σ): [n_delta, n_w].
-          auto contrib = force_contribution_k_sigma(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
-          local += obe.H.k_weights(k_idx) * contrib;
-        }
+#pragma omp parallel for collapse(2) reduction(array_sum : force_data) default(none)                                                                 \
+   shared(n_k, comm, n_sigma, obe, mu, Sigma_dynamic, Sigma_static)
+    for (auto k_idx : mpi::chunk(range(n_k), comm)) {
+      for (auto sigma : range(n_sigma)) {
+        // Force contribution for this (k, σ): [n_delta, n_w].
+        force_data += obe.H.k_weights(k_idx) * force_contribution_k_sigma(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
       }
-#pragma omp critical
-      force_data += local;
     }
     force_data = mpi::all_reduce(force_data);
 
