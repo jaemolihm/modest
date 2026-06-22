@@ -7,8 +7,9 @@
 
 namespace triqs::modest {
 
-  // OMP reduction for the [n_delta, n_w] force accumulator (cf. gf_sum in density.hpp).
-#pragma omp declare reduction(array_sum : nda::array<dcomplex, 2> : omp_out += omp_in) initializer(omp_priv = nda::zeros<dcomplex>(omp_orig.shape()))
+  // OMP reduction for the per-δ force accumulator gf (cf. gf_sum in density.hpp).
+#pragma omp declare reduction(gf_sum : gf<imfreq, tensor_valued<1>> : omp_out += omp_in) initializer(omp_priv = gf{omp_orig.mesh(), omp_orig.target_shape()})
+#pragma omp declare reduction(gf_sum : gf<dlr_imfreq, tensor_valued<1>> : omp_out += omp_in) initializer(omp_priv = gf{omp_orig.mesh(), omp_orig.target_shape()})
 
   // ===================================================================================
   // Pulay term δG0_QQ in the active subspace, built with the same flow as
@@ -57,7 +58,7 @@ namespace triqs::modest {
   //-------------------------------------------------------------------------------------------
   // Compute force contributions for a given k-point and spin (rank-reduced Woodbury).
   template <typename Mesh>
-  nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  gf<Mesh, tensor_valued<1>> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                        block2_gf<Mesh, matrix_valued> const &Sigma_dynamic,
                                        nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static) {
 
@@ -69,7 +70,7 @@ namespace triqs::modest {
     if (!delta_P.has_value()) { throw std::runtime_error("delta_P is not present in the projector. Cannot compute forces."); }
     auto n_delta = delta_P->shape()[0];
 
-    auto result = nda::zeros<dcomplex>(n_delta, omegas.size());
+    auto result = gf<Mesh, tensor_valued<1>>{mesh, {n_delta}};
 
     // Active subspace + block-diagonal Σ_active (Σ_total = Σ_dynamic + Σ_static), as in density().
     auto Sigma_total = detail::make_sigma_total(Sigma_dynamic, Sigma_static);
@@ -87,8 +88,8 @@ namespace triqs::modest {
       auto Sa  = nda::matrix<dcomplex>{Sa_n(n, r_all, r_all)};
       auto Yaa = nda::matrix<dcomplex>{bare.G0_QQ(n, r_all, r_all)};
       for (auto delta_i : range(n_delta)) {
-        auto K_dQQ         = detail::apply_K(Sa, Yaa, dG0_QQ(delta_i, n, r_all, r_all)); // K · δG0_QQ[δ]
-        result(delta_i, n) = nda::trace(K_dQQ);
+        auto K_dQQ                = detail::apply_K(Sa, Yaa, dG0_QQ(delta_i, n, r_all, r_all)); // K · δG0_QQ[δ]
+        result.data()(n, delta_i) = nda::trace(K_dQQ);
       }
     }
     return result;
@@ -114,28 +115,29 @@ namespace triqs::modest {
     auto n_sigma     = Sigma_dynamic.size2();
     auto n_k         = obe.H.n_k();
     auto const &mesh = Sigma_dynamic(0, 0).mesh();
-    auto n_w         = long(mesh.size());
 
     // Accumulate the frequency-resolved force contribution  Σ_{k,σ} w_k · contrib(δ, n)  into a single
-    // [n_delta, n_w] array via the declared OMP array reduction, then combine across MPI ranks.
-    auto force_data        = nda::zeros<dcomplex>(n_delta, n_w);
+    // gf with target shape (n_delta,) via the declared OMP gf reduction, then combine across MPI ranks.
+    auto force_gf          = gf<Mesh, tensor_valued<1>>{mesh, {n_delta}};
     mpi::communicator comm = {}; // for now using default comm in MPI
 
-#pragma omp parallel for collapse(2) reduction(array_sum : force_data) default(none)                                                                 \
+#pragma omp parallel for collapse(2) reduction(gf_sum : force_gf) default(none)                                                                      \
    shared(n_k, comm, n_sigma, obe, mu, Sigma_dynamic, Sigma_static)
     for (auto k_idx : mpi::chunk(range(n_k), comm)) {
       for (auto sigma : range(n_sigma)) {
-        // Force contribution for this (k, σ): [n_delta, n_w].
-        force_data += obe.H.k_weights(k_idx) * force_contribution_k_sigma(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
+        // Force contribution for this (k, σ) as a gf with target shape (n_delta,).
+        force_gf += obe.H.k_weights(k_idx) * force_contribution_k_sigma(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
       }
     }
-    force_data = mpi::all_reduce(force_data);
+    force_gf = mpi::all_reduce(force_gf);
 
-    // Per δ: forces = −dF/dτ = −density(G_δ), where G_δ.data = force_data(δ, ·).
+    // Per δ: forces = −dF/dτ = −density(G_δ), where G_δ.data = force_gf.data(·, δ).
+    // density() has no gf<imfreq, tensor_valued<1>> overload (only scalar/matrix), so we cannot call it
+    // directly on force_gf; instead copy each δ-slice into a scalar_valued gf and take its density.
     auto result = nda::zeros<double>(n_delta);
     for (auto delta_i : range(n_delta)) {
       auto g          = gf<Mesh, scalar_valued>{mesh};
-      g.data()        = force_data(delta_i, r_all);
+      g.data()        = force_gf.data()(r_all, delta_i);
       result(delta_i) = -real(density(g));
     }
 
@@ -144,10 +146,10 @@ namespace triqs::modest {
 
   // ------------------------------------------------------------------------------------
   // Explicit template instantiations
-  template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  template gf<imfreq, tensor_valued<1>> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                  block2_gf<imfreq, matrix_valued> const &Sigma_dynamic,
                                                  nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
-  template nda::array<dcomplex, 2> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
+  template gf<dlr_imfreq, tensor_valued<1>> force_contribution_k_sigma(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                                  block2_gf<dlr_imfreq, matrix_valued> const &Sigma_dynamic,
                                                  nda::array<nda::matrix<dcomplex>, 2> const &Sigma_static);
 
