@@ -13,7 +13,10 @@ namespace triqs::modest {
 
   // ===================================================================================
   // Pulay term δG0_QQ in the active subspace, built with the same flow as
-  // detail::compute_bare_projected's G0_QQ (Dinv · index-tensor, one batched gemm per δ).
+  // detail::compute_bare_projected's G0_QQ (Dinv · index-tensor, one batched gemm per δ)
+  // but one of the Q's is replaced by δQ = delta_P[active rows].
+  // δG0_QQ(iδ, n, a, b) = Σ_ν P(a, ν) Dinv(n, ν) δP†(iδ, ν, b) + δP(a, ν) Dinv(n, ν) P†(iδ, ν, b)
+  // and both P and δP are projected to the active subspace (nonzero rows of Σ_active).
   // ===================================================================================
   nda::array<dcomplex, 4> compute_delta_G0_QQ(one_body_elements_on_grid const &obe, double mu, long k_idx, long sigma,
                                              std::vector<dcomplex> const &omegas, detail::active_subspace_t const &A) {
