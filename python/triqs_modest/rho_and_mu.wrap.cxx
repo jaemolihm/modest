@@ -11,10 +11,11 @@
 #pragma GCC diagnostic ignored "-Wcpp"
 #endif
 
-#define C2PY_VERSION_MAJOR 0
-#define C2PY_VERSION_MINOR 1
+#define C2PY_VERSION_MAJOR 1
+#define C2PY_VERSION_MINOR 0
 
 #include <c2py/c2py.hpp>
+#include <c2py/version_check.hpp>
 
 using c2py::operator""_a;
 
@@ -25,7 +26,7 @@ using c2py::operator""_a;
 // ==================== module functions ====================
 
 // density
-static auto const _c2py_fun_0 = c2py::dispatcher_f_kw_t{
+static auto const _c2py_fun_72b9059b = c2py::dispatcher_f_kw_t{
    c2py::cfun(
       [](const triqs::modest::one_body_elements_tb &obe, double mu,
          const triqs::gfs::block_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &Sigma_dynamic,
@@ -59,12 +60,12 @@ static auto const _c2py_fun_0 = c2py::dispatcher_f_kw_t{
       "obe", "mu", "Sigma_dynamic", "Sigma_static")};
 
 // density_nk
-static auto const _c2py_fun_1 = c2py::dispatcher_f_kw_t{
+static auto const _c2py_fun_4d29b457 = c2py::dispatcher_f_kw_t{
    c2py::cfun([](const triqs::modest::one_body_elements_on_grid &obe, double mu, double beta) { return triqs::modest::density_nk(obe, mu, beta); },
               "obe", "mu", "beta")};
 
 // find_chemical_potential
-static auto const _c2py_fun_2 =
+static auto const _c2py_fun_9f09ef1a =
    c2py::dispatcher_f_kw_t{
       c2py::cfun(
          [](const double target_density, const triqs::modest::one_body_elements_tb &obe,
@@ -110,7 +111,49 @@ static auto const _c2py_fun_2 =
          },
          "target_density", "obe", "Sigma_dynamic", "Sigma_static", "method"_a = "dichotomy", "precision"_a = 1.e-5, "verbosity"_a = true)};
 
-static const auto _c2py_doc_0 = _c2py_fun_0.doc(
+// force_contribution_k_sigma
+static auto const _c2py_fun_8d976065 = c2py::dispatcher_f_kw_t{
+   c2py::cfun(
+      [](const triqs::modest::one_body_elements_on_grid &obe, double mu, long k_idx, long sigma,
+         const triqs::gfs::block_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &Sigma_dynamic,
+         const nda::basic_array<
+            nda::basic_array<std::complex<double>, 2, nda::C_layout, 'M', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>, 2,
+            nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>> &Sigma_static) {
+        return triqs::modest::force_contribution_k_sigma<triqs::mesh::imfreq>(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
+      },
+      "obe", "mu", "k_idx", "sigma", "Sigma_dynamic", "Sigma_static"),
+   c2py::cfun(
+      [](const triqs::modest::one_body_elements_on_grid &obe, double mu, long k_idx, long sigma,
+         const triqs::gfs::block_gf<triqs::mesh::dlr_imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &Sigma_dynamic,
+         const nda::basic_array<
+            nda::basic_array<std::complex<double>, 2, nda::C_layout, 'M', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>, 2,
+            nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>> &Sigma_static) {
+        return triqs::modest::force_contribution_k_sigma<triqs::mesh::dlr_imfreq>(obe, mu, k_idx, sigma, Sigma_dynamic, Sigma_static);
+      },
+      "obe", "mu", "k_idx", "sigma", "Sigma_dynamic", "Sigma_static")};
+
+// forces
+static auto const _c2py_fun_7ce29cd5 = c2py::dispatcher_f_kw_t{
+   c2py::cfun(
+      [](const triqs::modest::one_body_elements_on_grid &obe, double mu,
+         const triqs::gfs::block_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &Sigma_dynamic,
+         const nda::basic_array<
+            nda::basic_array<std::complex<double>, 2, nda::C_layout, 'M', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>, 2,
+            nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>> &Sigma_static) {
+        return triqs::modest::forces<triqs::mesh::imfreq>(obe, mu, Sigma_dynamic, Sigma_static);
+      },
+      "obe", "mu", "Sigma_dynamic", "Sigma_static"),
+   c2py::cfun(
+      [](const triqs::modest::one_body_elements_on_grid &obe, double mu,
+         const triqs::gfs::block_gf<triqs::mesh::dlr_imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &Sigma_dynamic,
+         const nda::basic_array<
+            nda::basic_array<std::complex<double>, 2, nda::C_layout, 'M', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>, 2,
+            nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>> &Sigma_static) {
+        return triqs::modest::forces<triqs::mesh::dlr_imfreq>(obe, mu, Sigma_dynamic, Sigma_static);
+      },
+      "obe", "mu", "Sigma_dynamic", "Sigma_static")};
+
+static const auto _c2py_doc_72b9059b = _c2py_fun_72b9059b.doc(
    R"DOC(
 [1] Compute the density of the lattice Green's function with a self-energy.
 
@@ -154,10 +197,10 @@ Returns
     {c2py::python_typename<const triqs::experimental::lattice::bz_int_options &>()},
     {c2py::python_typename<const triqs::mesh::imfreq &>()}},
    {c2py::python_typename<double>()});
-static const auto _c2py_doc_1 = _c2py_fun_1.doc(R"DOC(
+static const auto _c2py_doc_4d29b457 = _c2py_fun_4d29b457.doc(R"DOC(
 Compute number of particles :math:`n = \sum f(\beta(\varepsilon(k) - μ))`.
 )DOC");
-static const auto _c2py_doc_2 = _c2py_fun_2.doc(
+static const auto _c2py_doc_9f09ef1a = _c2py_fun_9f09ef1a.doc(
    R"DOC(
 [1, 2, 4, 5] Find the chemical potenital from the local Green's function and self-energy given a target density.
 
@@ -209,14 +252,90 @@ Returns
     {c2py::python_typename<const triqs::mesh::imfreq &>()},
     {c2py::python_typename<double>()}},
    {c2py::python_typename<double>()});
+static const auto _c2py_doc_8d976065 = _c2py_fun_8d976065.doc(
+   R"DOC(
+Compute force contributions for a given k-point and spin (rank-reduced Woodbury).
+
+Per ω, the force trace reduces to the active subspace exactly as in density():
+:math:`\mathrm{tr}\big( K \cdot \delta G^0_{QQ}[\delta] \big)` with
+:math:`K = \Sigma_a (I - G^0_{QQ}\,\Sigma_a)^{-1}` = detail::apply_K.
+
+Parameters
+----------
+obe : {par_0}
+   One-body elements.
+mu : {par_1}
+   Chemical potential.
+k_idx : {par_2}
+   K-point index.
+sigma : {par_3}
+   Spin index.
+Sigma_dynamic : {par_4}
+   Dynamic part of the embedded self-energy.
+Sigma_static : {par_5}
+   Static part of the embedded self-energy.
+
+Returns
+-------
+[1] : {ret_0}
+   Force contributions as a gf with target shape (n_delta,): data()(n, δ).
+
+[2] : {ret_1}
+   Force contributions as a gf with target shape (n_delta,): data()(n, δ).
+)DOC",
+   {{c2py::python_typename<const triqs::modest::one_body_elements_on_grid &>()},
+    {c2py::python_typename<double>()},
+    {c2py::python_typename<long>()},
+    {c2py::python_typename<long>()},
+    {c2py::python_typename<const triqs::gfs::block_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &>(),
+     c2py::python_typename<const triqs::gfs::block_gf<triqs::mesh::dlr_imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &>()},
+    {c2py::python_typename<const nda::basic_array<
+       nda::basic_array<std::complex<double>, 2, nda::C_layout, 'M', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>, 2,
+       nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>> &>()}},
+   {c2py::python_typename<triqs::gfs::gf<triqs::mesh::imfreq, triqs::gfs::tensor_valued<1>>>(),
+    c2py::python_typename<triqs::gfs::gf<triqs::mesh::dlr_imfreq, triqs::gfs::tensor_valued<1>>>()});
+static const auto _c2py_doc_7ce29cd5 = _c2py_fun_7ce29cd5.doc(
+   R"DOC(
+Compute force contributions from the lattice Green's function with a self-energy using Woodbury.
+
+Computes the correction term to forces (no Kohn-Sham term included).
+
+Parameters
+----------
+obe : {par_0}
+   One-body elements (must contain delta_P projector derivatives).
+mu : {par_1}
+   Chemical potential.
+Sigma_dynamic : {par_2}
+   Dynamic part of the embedded self-energy.
+Sigma_static : {par_3}
+   Static part of the embedded self-energy.
+
+Returns
+-------
+{ret_0}
+   Force contributions as array of size [n_delta] where n_delta = n_atoms * 3.
+)DOC",
+   {{c2py::python_typename<const triqs::modest::one_body_elements_on_grid &>()},
+    {c2py::python_typename<double>()},
+    {c2py::python_typename<const triqs::gfs::block_gf<triqs::mesh::imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &>(),
+     c2py::python_typename<const triqs::gfs::block_gf<triqs::mesh::dlr_imfreq, triqs::gfs::matrix_valued, nda::C_layout, 2> &>()},
+    {c2py::python_typename<const nda::basic_array<
+       nda::basic_array<std::complex<double>, 2, nda::C_layout, 'M', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>, 2,
+       nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>> &>()}},
+   {c2py::python_typename<nda::basic_array<double, 1, nda::C_layout, 'A', nda::heap_basic<nda::mem::mallocator<nda::mem::AddressSpace::Host>>>>()});
 //--------------------- module function table  -----------------------------
 
+// clang-format off
 static PyMethodDef module_methods[] = {
-   {"density", (PyCFunction)c2py::pyfkw<_c2py_fun_0>, METH_VARARGS | METH_KEYWORDS, _c2py_doc_0.c_str()},
-   {"density_nk", (PyCFunction)c2py::pyfkw<_c2py_fun_1>, METH_VARARGS | METH_KEYWORDS, _c2py_doc_1.c_str()},
-   {"find_chemical_potential", (PyCFunction)c2py::pyfkw<_c2py_fun_2>, METH_VARARGS | METH_KEYWORDS, _c2py_doc_2.c_str()},
-   {nullptr, nullptr, 0, nullptr} // Sentinel
+   PMDF("density", 72b9059b),
+   PMDF("density_nk", 4d29b457),
+   PMDF("find_chemical_potential", 9f09ef1a),
+   PMDF("force_contribution_k_sigma", 8d976065),
+   PMDF("forces", 7ce29cd5),
+   {nullptr, nullptr, 0, nullptr}  // Sentinel
 };
+// clang-format on
 
 //--------------------- module struct & init error definition ------------
 
@@ -252,15 +371,12 @@ extern "C" __attribute__((visibility("default"))) PyObject *PyInit_rho_and_mu() 
 
   PyObject *m;
 
-  if (PyType_Ready(&c2py::wrap_pytype<c2py::py_range>) < 0) return NULL;
-
   m = PyModule_Create(&module_def);
   if (m == NULL) return NULL;
 
-  auto &conv_table = *c2py::conv_table_sptr.get();
-
-  conv_table[std::type_index(typeid(c2py::py_range)).name()] = &c2py::wrap_pytype<c2py::py_range>;
-#define _add_type(T, N) c2py::add_type_object_to_main<T>(N, m, conv_table)
+  if (not c2py::register_internal_types()) return NULL;
+#define _add_type(T, N)                                                                                                                              \
+  if (not c2py::add_type_object_to_main<T>(N, m)) return NULL
 
 #undef _add_type
 
